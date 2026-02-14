@@ -3,52 +3,74 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"agent/internal/collector"
 	"agent/internal/docker"
 	"agent/internal/output"
+	"agent/internal/websocket"
 )
 
 const updateCheckConcurrency = 4
 
+var backendURL string
+
+func init() {
+	flag.StringVar(&backendURL, "backend-url", "", "WebSocket backend URL (or use BACKEND_URL env var)")
+}
+
 func main() {
-	if len(os.Args) < 2 {
+	flag.Parse()
+
+	if envURL := os.Getenv("BACKEND_URL"); envURL != "" && backendURL == "" {
+		backendURL = envURL
+	}
+
+	args := flag.Args()
+	if len(args) < 1 {
 		runStats()
 		return
 	}
 
-	cmd := os.Args[1]
+	cmd := args[0]
 
 	switch cmd {
 	case "stats":
 		runStats()
 	case "info":
 		runInfo()
+	case "ws":
+		runWebSocket()
 	case "stop":
-		runContainerCmd(os.Args[2:], "stop")
+		runContainerCmd(flag.Args()[1:], "stop")
 	case "start":
-		runContainerCmd(os.Args[2:], "start")
+		runContainerCmd(flag.Args()[1:], "start")
 	case "restart":
-		runContainerCmd(os.Args[2:], "restart")
+		runContainerCmd(flag.Args()[1:], "restart")
 	case "check-updates":
-		runCheckUpdates(os.Args[2:])
+		runCheckUpdates(flag.Args()[1:])
 	case "update":
-		runUpdate(os.Args[2:])
+		runUpdate(flag.Args()[1:])
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		fmt.Println("Available commands:")
 		fmt.Println("  stats              - Collect and write stats to JSON (default)")
 		fmt.Println("  info               - Show system information (hostname, CPU, RAM, etc.)")
+		fmt.Println("  ws                 - Run agent in WebSocket mode (requires BACKEND_URL)")
 		fmt.Println("  stop <container>   - Stop a container")
 		fmt.Println("  start <container>  - Start a container")
 		fmt.Println("  restart <container> - Restart a container")
 		fmt.Println("  check-updates [container|project] - Check for updates")
 		fmt.Println("  update <container|project> - Update container or compose project")
+		fmt.Println("")
+		fmt.Println("Environment variables:")
+		fmt.Println("  BACKEND_URL        - WebSocket server URL for 'ws' command")
 	}
 }
 
@@ -83,6 +105,335 @@ func runStats() {
 	}
 
 	log.Printf("Metrics written to %s", filename)
+}
+
+func runWebSocket() {
+	if backendURL == "" {
+		fmt.Println("Error: BACKEND_URL not set")
+		fmt.Println("Usage: agent ws")
+		fmt.Println("  --backend-url string   WebSocket backend URL")
+		fmt.Println("  Or set BACKEND_URL environment variable")
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	wsClient := websocket.NewClient(backendURL)
+
+	if err := wsClient.Connect(ctx); err != nil {
+		log.Fatalf("Failed to connect to WebSocket: %v", err)
+	}
+
+	go sendMetricsLoop(ctx, wsClient)
+
+	for {
+		err := wsClient.Listen(ctx, func(cmd websocket.Command) error {
+			return handleWebSocketCommand(ctx, wsClient, cmd)
+		})
+
+		log.Printf("WebSocket connection lost: %v", err)
+		log.Printf("Reconnecting in 10 seconds...")
+
+		select {
+		case <-ctx.Done():
+			wsClient.Close()
+			return
+		case <-time.After(10 * time.Second):
+			if err := wsClient.Reconnect(ctx); err != nil {
+				log.Printf("Reconnect failed: %v", err)
+			} else {
+				log.Printf("WebSocket reconnected")
+			}
+		}
+	}
+}
+
+func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !wsClient.IsConnected() {
+				continue
+			}
+
+			sysMetrics, err := collector.CollectSystemMetrics(ctx)
+			if err != nil {
+				log.Printf("Error collecting system metrics: %v", err)
+				continue
+			}
+
+			var dockerMetrics interface{}
+			dockerCli, err := docker.NewDockerClient()
+			if err == nil {
+				defer dockerCli.Close()
+				dm, _ := docker.CollectContainerMetrics(ctx, dockerCli)
+				dockerMetrics = dm
+			}
+
+			msg := websocket.MetricsMessage{
+				Type:      "metrics",
+				Timestamp: sysMetrics.Timestamp,
+				System:    sysMetrics,
+				Docker:    dockerMetrics,
+			}
+
+			if err := wsClient.SendMessage("metrics", msg); err != nil {
+				log.Printf("Error sending metrics: %v", err)
+			}
+		}
+	}
+}
+
+func handleWebSocketCommand(ctx context.Context, wsClient *websocket.Client, cmd websocket.Command) error {
+	log.Printf("Received command: type=%s action=%s target=%s", cmd.Type, cmd.Action, cmd.Target)
+
+	var result map[string]interface{}
+
+	switch cmd.Action {
+	case "stats":
+		sysMetrics, err := collector.CollectSystemMetrics(ctx)
+		if err != nil {
+			result = map[string]interface{}{"error": err.Error()}
+		} else {
+			var dockerMetrics interface{}
+			dockerCli, err := docker.NewDockerClient()
+			if err == nil {
+				defer dockerCli.Close()
+				dm, _ := docker.CollectContainerMetrics(ctx, dockerCli)
+				dockerMetrics = dm
+			}
+			result = map[string]interface{}{"system": sysMetrics, "docker": dockerMetrics}
+		}
+
+	case "info":
+		info, err := collector.CollectSystemInfo(ctx)
+		if err != nil {
+			result = map[string]interface{}{"error": err.Error()}
+		} else {
+			result = map[string]interface{}{"info": info}
+		}
+
+	case "stop":
+		if cmd.Target == "" {
+			result = map[string]interface{}{"error": "target is required"}
+		} else {
+			err := runStopContainer(ctx, cmd.Target)
+			result = map[string]interface{}{"success": err == nil, "error": func() string {
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			}()}
+		}
+
+	case "start":
+		if cmd.Target == "" {
+			result = map[string]interface{}{"error": "target is required"}
+		} else {
+			err := runStartContainer(ctx, cmd.Target)
+			result = map[string]interface{}{"success": err == nil, "error": func() string {
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			}()}
+		}
+
+	case "restart":
+		if cmd.Target == "" {
+			result = map[string]interface{}{"error": "target is required"}
+		} else {
+			err := runRestartContainer(ctx, cmd.Target)
+			result = map[string]interface{}{"success": err == nil, "error": func() string {
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			}()}
+		}
+
+	case "check-updates":
+		updates, err := runCheckUpdatesForTarget(ctx, cmd.Target)
+		result = map[string]interface{}{"updates": updates, "error": func() string {
+			if err != nil {
+				return err.Error()
+			}
+			return ""
+		}()}
+
+	case "update":
+		if cmd.Target == "" {
+			result = map[string]interface{}{"error": "target is required"}
+		} else {
+			results, err := runUpdateTarget(ctx, cmd.Target)
+			result = map[string]interface{}{"results": results, "error": func() string {
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			}()}
+		}
+
+	default:
+		result = map[string]interface{}{"error": "unknown action: " + cmd.Action}
+	}
+
+	return wsClient.SendMessage("result", result)
+}
+
+func runStopContainer(ctx context.Context, containerName string) error {
+	dockerCli, err := docker.NewDockerClient()
+	if err != nil {
+		return fmt.Errorf("failed to create docker client: %w", err)
+	}
+	defer dockerCli.Close()
+
+	containerID, err := docker.FindContainerByName(ctx, dockerCli, containerName)
+	if err != nil {
+		return fmt.Errorf("container not found: %w", err)
+	}
+
+	manager := docker.NewContainerManager(dockerCli)
+	return manager.StopContainer(ctx, containerID)
+}
+
+func runStartContainer(ctx context.Context, containerName string) error {
+	dockerCli, err := docker.NewDockerClient()
+	if err != nil {
+		return fmt.Errorf("failed to create docker client: %w", err)
+	}
+	defer dockerCli.Close()
+
+	containerID, err := docker.FindContainerByName(ctx, dockerCli, containerName)
+	if err != nil {
+		return fmt.Errorf("container not found: %w", err)
+	}
+
+	manager := docker.NewContainerManager(dockerCli)
+	return manager.StartContainer(ctx, containerID)
+}
+
+func runRestartContainer(ctx context.Context, containerName string) error {
+	dockerCli, err := docker.NewDockerClient()
+	if err != nil {
+		return fmt.Errorf("failed to create docker client: %w", err)
+	}
+	defer dockerCli.Close()
+
+	containerID, err := docker.FindContainerByName(ctx, dockerCli, containerName)
+	if err != nil {
+		return fmt.Errorf("container not found: %w", err)
+	}
+
+	manager := docker.NewContainerManager(dockerCli)
+	return manager.RestartContainer(ctx, containerID)
+}
+
+func runCheckUpdatesForTarget(ctx context.Context, target string) ([]interface{}, error) {
+	dockerCli, err := docker.NewDockerClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create docker client: %w", err)
+	}
+	defer dockerCli.Close()
+
+	manager := docker.NewContainerManager(dockerCli)
+
+	if target != "" {
+		containerID, err := docker.FindContainerByName(ctx, dockerCli, target)
+		if err == nil && containerID != "" {
+			updates, err := manager.CheckForUpdates(ctx, containerID)
+			if err != nil {
+				return nil, err
+			}
+			return convertUpdates(updates), nil
+		}
+
+		workingDir := ""
+		metrics, _ := docker.CollectContainerMetrics(ctx, dockerCli)
+		for _, g := range metrics.ComposeGroups {
+			if g.Project == target || g.Name == target {
+				workingDir = g.WorkingDir
+				break
+			}
+		}
+
+		updates, err := manager.CheckComposeUpdates(ctx, target, workingDir)
+		if err != nil {
+			return nil, err
+		}
+		return convertUpdates(updates), nil
+	}
+
+	return nil, nil
+}
+
+func runUpdateTarget(ctx context.Context, target string) ([]interface{}, error) {
+	dockerCli, err := docker.NewDockerClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create docker client: %w", err)
+	}
+	defer dockerCli.Close()
+
+	manager := docker.NewContainerManager(dockerCli)
+
+	metrics, _ := docker.CollectContainerMetrics(ctx, dockerCli)
+	for _, g := range metrics.ComposeGroups {
+		if g.Project == target || g.Name == target {
+			results, err := manager.UpdateComposeGroup(ctx, target, g.WorkingDir)
+			if err != nil {
+				return nil, err
+			}
+			return convertResults(results), nil
+		}
+	}
+
+	containerID, err := docker.FindContainerByName(ctx, dockerCli, target)
+	if err == nil && containerID != "" {
+		results, err := manager.UpdateContainer(ctx, containerID)
+		if err != nil {
+			return nil, err
+		}
+		return convertResults(results), nil
+	}
+
+	return nil, fmt.Errorf("not found: %s", target)
+}
+
+func convertUpdates(updates []docker.UpdateInfo) []interface{} {
+	result := make([]interface{}, len(updates))
+	for i, u := range updates {
+		result[i] = map[string]interface{}{
+			"container_name":   u.ContainerName,
+			"current_image":    u.CurrentImage,
+			"current_version":  u.CurrentVersion,
+			"latest_image":     u.LatestImage,
+			"latest_version":   u.LatestVersion,
+			"update_available": u.UpdateAvailable,
+			"status":           u.Status,
+			"error":            u.Error,
+			"project":          u.Project,
+			"service":          u.Service,
+		}
+	}
+	return result
+}
+
+func convertResults(results []docker.UpdateResult) []interface{} {
+	result := make([]interface{}, len(results))
+	for i, r := range results {
+		result[i] = map[string]interface{}{
+			"container": r.Container,
+			"success":   r.Success,
+			"message":   r.Message,
+		}
+	}
+	return result
 }
 
 func runInfo() {

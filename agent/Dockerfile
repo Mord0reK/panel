@@ -18,4 +18,4 @@ WORKDIR /app
 COPY --from=builder /build/agent /app/agent
 
 ENTRYPOINT ["/app/agent"]
-CMD ["stats"]
+CMD ["--backend-url ws://localhost:8080 ws"]
