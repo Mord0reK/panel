@@ -1,0 +1,7 @@
+services:
+  agent:
+    build: .
+    image: monitoring-agent:latest
+    container_name: monitoring-agent
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro

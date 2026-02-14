@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -59,7 +60,9 @@ func (m *ContainerManager) RestartContainer(ctx context.Context, containerID str
 type UpdateInfo struct {
 	ContainerName   string `json:"container_name"`
 	CurrentImage    string `json:"current_image"`
+	CurrentVersion  string `json:"current_version"`
 	LatestImage     string `json:"latest_image"`
+	LatestVersion   string `json:"latest_version"`
 	UpdateAvailable bool   `json:"update_available"`
 	Status          string `json:"status,omitempty"`
 	Error           string `json:"error,omitempty"`
@@ -95,12 +98,19 @@ func (m *ContainerManager) CheckForUpdates(ctx context.Context, containerID stri
 	if currentImage == "" {
 		return nil, fmt.Errorf("container image is empty")
 	}
-	imageName := normalizeImageRef(currentImage)
+
+	// Normalizuj current image
+	currentImageNormalized := normalizeImageRef(currentImage)
+
+	// Dla sprawdzania update ZAWSZE porównuj z :latest
+	latestImage := stripTag(currentImageNormalized) + ":latest"
 
 	info := UpdateInfo{
 		ContainerName:   containerName,
 		CurrentImage:    currentImage,
-		LatestImage:     imageName,
+		CurrentVersion:  "unknown",
+		LatestImage:     latestImage,
+		LatestVersion:   "unknown",
 		UpdateAvailable: false,
 		Status:          UpdateStatusUnknown,
 	}
@@ -110,14 +120,24 @@ func (m *ContainerManager) CheckForUpdates(ctx context.Context, containerID stri
 		info.Service = strings.TrimSpace(inspect.Container.Config.Labels["com.docker.compose.service"])
 	}
 
-	localDigest, err := m.getLocalImageDigest(ctx, imageName)
+	// Pobierz current version z local image
+	currentImageInspect, err := m.cli.ImageInspect(ctx, currentImageNormalized)
+	if err == nil {
+		if version, ok := currentImageInspect.Config.Labels["org.opencontainers.image.version"]; ok && version != "" {
+			info.CurrentVersion = version
+		}
+	}
+
+	// Sprawdź lokalny digest
+	localDigest, err := m.getLocalImageDigest(ctx, currentImageNormalized)
 	if err != nil {
 		info.Status = UpdateStatusUnknown
 		info.Error = err.Error()
 		return []UpdateInfo{info}, nil
 	}
 
-	remoteDigest, err := m.getRemoteImageDigest(ctx, imageName)
+	// Sprawdź zdalny digest :latest
+	remoteDigest, err := m.getRemoteImageDigest(ctx, latestImage)
 	if err != nil {
 		if isRateLimitError(err) {
 			info.Status = UpdateStatusRateLimit
@@ -128,11 +148,30 @@ func (m *ContainerManager) CheckForUpdates(ctx context.Context, containerID stri
 		return []UpdateInfo{info}, nil
 	}
 
+	// Jeśli digest się różni, pull :latest żeby zobaczyć wersję
 	if remoteDigest != localDigest {
 		info.UpdateAvailable = true
 		info.Status = UpdateStatusAvailable
+
+		// Pull latest w tle żeby wyciągnąć wersję
+		pullResp, err := m.cli.ImagePull(ctx, latestImage, client.ImagePullOptions{})
+		if err == nil {
+			// Consume stream (musimy to zrobić żeby pull się skończył)
+			_, _ = io.Copy(io.Discard, pullResp)
+			pullResp.Close()
+
+			// Teraz inspect pulled image
+			latestImageInspect, err := m.cli.ImageInspect(ctx, latestImage)
+			if err == nil {
+				if version, ok := latestImageInspect.Config.Labels["org.opencontainers.image.version"]; ok && version != "" {
+					info.LatestVersion = version
+				}
+			}
+		}
 	} else {
 		info.Status = UpdateStatusUpToDate
+		// Jak jest up to date, latest version = current version
+		info.LatestVersion = info.CurrentVersion
 	}
 
 	return []UpdateInfo{info}, nil
@@ -223,31 +262,52 @@ func (m *ContainerManager) UpdateContainer(ctx context.Context, containerID stri
 }
 
 func (m *ContainerManager) CheckComposeUpdates(ctx context.Context, projectName, workingDir string) ([]UpdateInfo, error) {
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-p", projectName, "config", "--images")
-	if workingDir != "" {
-		cmd.Dir = workingDir
-	}
-	output, err := cmd.Output()
+	// ═══════════════════════════════════════════════════════════
+	// ZAMIAST: docker compose config --images
+	// UŻYWAMY: API do znalezienia kontenerów w projekcie
+	// ═══════════════════════════════════════════════════════════
+	filterArgs := client.Filters{}
+	filterArgs = filterArgs.Add("label", fmt.Sprintf("com.docker.compose.project=%s", projectName))
+
+	containers, err := m.cli.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: filterArgs,
+	})
 	if err != nil {
 		return []UpdateInfo{{
 			Project:         projectName,
 			UpdateAvailable: false,
 			Status:          UpdateStatusUnknown,
-			Error:           fmt.Sprintf("failed to resolve compose images: %v", err),
+			Error:           fmt.Sprintf("failed to list containers: %v", err),
 		}}, nil
 	}
 
-	images := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(containers.Items) == 0 {
+		return []UpdateInfo{{
+			Project:         projectName,
+			UpdateAvailable: false,
+			Status:          UpdateStatusUnknown,
+			Error:           "no containers found in project",
+		}}, nil
+	}
+
+	// Zbierz unikalne obrazy z kontenerów
+	imageSet := make(map[string]bool)
+	for _, c := range containers.Items {
+		image := normalizeImageRef(c.Image)
+		if image != "" {
+			imageSet[image] = true
+		}
+	}
+
 	hasUpdate := false
 	hasRateLimit := false
 	unknownErrors := make([]string, 0)
 	rateLimitErrors := make([]string, 0)
 
-	for _, image := range images {
-		image = normalizeImageRef(image)
-		if image == "" {
-			continue
-		}
+	// Sprawdź każdy unikalny obraz
+	for image := range imageSet {
+		latestImage := stripTag(image) + ":latest"
 
 		localDigest, localErr := m.getLocalImageDigest(ctx, image)
 		if localErr != nil {
@@ -255,7 +315,7 @@ func (m *ContainerManager) CheckComposeUpdates(ctx context.Context, projectName,
 			continue
 		}
 
-		remoteDigest, remoteErr := m.getRemoteImageDigest(ctx, image)
+		remoteDigest, remoteErr := m.getRemoteImageDigest(ctx, latestImage)
 		if remoteErr != nil {
 			if isRateLimitError(remoteErr) {
 				hasRateLimit = true
@@ -399,8 +459,6 @@ func normalizeImageRef(image string) string {
 	}
 	// Handle sha256: prefix
 	if strings.HasPrefix(image, "sha256:") {
-		// Can't extract name from digest alone, return as-is
-		// Docker will use local image if exists
 		return image
 	}
 	// Handle @digest format
@@ -411,6 +469,30 @@ func normalizeImageRef(image string) string {
 
 	if !hasExplicitTag(image) {
 		image += ":latest"
+	}
+
+	return image
+}
+
+// stripTag usuwa tag z image reference, zachowując repo
+func stripTag(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
+	}
+
+	// Usuń @digest jeśli jest
+	if idx := strings.Index(image, "@"); idx != -1 {
+		image = image[:idx]
+	}
+
+	// Usuń :tag jeśli jest
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+
+	// Colon jest tagiem tylko jeśli jest po ostatnim slash
+	if lastColon > lastSlash {
+		image = image[:lastColon]
 	}
 
 	return image
@@ -485,41 +567,28 @@ func getComposeDir(composeFile string) string {
 }
 
 func FindContainerByName(ctx context.Context, cli *client.Client, name string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "ps", "-a", "--format", "{{.ID}}")
-	output, err := cmd.Output()
+	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return "", fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	ids := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, id := range ids {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
+	cleanName := strings.TrimPrefix(name, "/")
 
-		cmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Name}}", id)
-		out, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-		containerName := strings.TrimPrefix(strings.TrimSpace(string(out)), "/")
+	for _, c := range containers.Items {
+		fullID := c.ID
 
-		cmd = exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Id}}", id)
-		out, err = cmd.Output()
-		if err != nil {
-			continue
-		}
-		fullID := strings.TrimSpace(string(out))
+		for _, containerName := range c.Names {
+			containerName = strings.TrimPrefix(containerName, "/")
 
-		cleanName := strings.TrimPrefix(name, "/")
-		shortID := fullID
-		if len(fullID) > 12 {
-			shortID = fullID[:12]
-		}
+			shortID := fullID
+			if len(fullID) > 12 {
+				shortID = fullID[:12]
+			}
 
-		if containerName == cleanName || strings.HasPrefix(containerName, cleanName) || fullID == cleanName || shortID == cleanName {
-			return fullID, nil
+			// TYLKO EXACT MATCH - usuń prefix match!
+			if containerName == cleanName || fullID == cleanName || shortID == cleanName {
+				return fullID, nil
+			}
 		}
 	}
 

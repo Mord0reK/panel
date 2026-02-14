@@ -329,6 +329,28 @@ func runUpdate(args []string) {
 
 	manager := docker.NewContainerManager(dockerCli)
 
+	// ═══════════════════════════════════════════════════════════
+	// PRIORYTET 1: Szukaj compose project (EXACT MATCH)
+	// ═══════════════════════════════════════════════════════════
+	metrics, err := docker.CollectContainerMetrics(ctx, dockerCli)
+	if err == nil {
+		for _, g := range metrics.ComposeGroups {
+			// EXACT match na project name
+			if g.Project == target || g.Name == target {
+				fmt.Printf("Updating compose project: %s\n", target)
+				results, err := manager.UpdateComposeGroup(ctx, target, g.WorkingDir)
+				if err != nil {
+					log.Fatalf("Failed to update compose group: %v", err)
+				}
+				printResults(results)
+				return
+			}
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════
+	// PRIORYTET 2: Jak nie ma project, szukaj kontenera (EXACT MATCH)
+	// ═══════════════════════════════════════════════════════════
 	containerID, err := docker.FindContainerByName(ctx, dockerCli, target)
 	if err == nil && containerID != "" {
 		results, err := manager.UpdateContainer(ctx, containerID)
@@ -339,23 +361,8 @@ func runUpdate(args []string) {
 		return
 	}
 
-	project := target
-	workingDir := ""
-	metrics, err := docker.CollectContainerMetrics(ctx, dockerCli)
-	if err == nil {
-		for _, g := range metrics.ComposeGroups {
-			if g.Project == project || g.Name == project {
-				workingDir = g.WorkingDir
-				break
-			}
-		}
-	}
-
-	results, err := manager.UpdateComposeGroup(ctx, project, workingDir)
-	if err != nil {
-		log.Fatalf("Failed to update compose group: %v", err)
-	}
-	printResults(results)
+	// Nic nie znaleziono
+	log.Fatalf("Not found: %s (no compose project or container with this name)", target)
 }
 
 func printUpdates(updates []docker.UpdateInfo) {
