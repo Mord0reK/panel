@@ -3,7 +3,6 @@ module agent
 go 1.24.4
 
 require (
-	github.com/docker/docker v28.5.2+incompatible // ← Dodaj dla filters
 	github.com/moby/moby/api v1.53.0
 	github.com/moby/moby/client v0.2.2
 	github.com/shirou/gopsutil/v4 v4.26.1

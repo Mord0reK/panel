@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -31,28 +30,34 @@ type cachedDigestResult struct {
 }
 
 func (m *ContainerManager) StopContainer(ctx context.Context, containerID string) error {
-	cmd := exec.Command("docker", "stop", containerID)
-	output, err := cmd.CombinedOutput()
+	timeout := 10
+	stopOptions := client.ContainerStopOptions{
+		Timeout: &timeout,
+	}
+	_, err := m.cli.ContainerStop(ctx, containerID, stopOptions)
 	if err != nil {
-		return fmt.Errorf("failed to stop container %s: %w\n%s", containerID, err, output)
+		return fmt.Errorf("failed to stop container %s: %w", containerID, err)
 	}
 	return nil
 }
 
 func (m *ContainerManager) StartContainer(ctx context.Context, containerID string) error {
-	cmd := exec.Command("docker", "start", containerID)
-	output, err := cmd.CombinedOutput()
+	startOptions := client.ContainerStartOptions{}
+	_, err := m.cli.ContainerStart(ctx, containerID, startOptions)
 	if err != nil {
-		return fmt.Errorf("failed to start container %s: %w\n%s", containerID, err, output)
+		return fmt.Errorf("failed to start container %s: %w", containerID, err)
 	}
 	return nil
 }
 
 func (m *ContainerManager) RestartContainer(ctx context.Context, containerID string) error {
-	cmd := exec.Command("docker", "restart", containerID)
-	output, err := cmd.CombinedOutput()
+	timeout := 10
+	restartOptions := client.ContainerRestartOptions{
+		Timeout: &timeout,
+	}
+	_, err := m.cli.ContainerRestart(ctx, containerID, restartOptions)
 	if err != nil {
-		return fmt.Errorf("failed to restart container %s: %w\n%s", containerID, err, output)
+		return fmt.Errorf("failed to restart container %s: %w", containerID, err)
 	}
 	return nil
 }
@@ -75,7 +80,11 @@ const (
 	UpdateStatusAvailable = "update_available"
 	UpdateStatusRateLimit = "rate_limited"
 	UpdateStatusUnknown   = "unknown"
+	UpdateStatusLocal     = "local"
 )
+
+// isLocalImageMarker is a special marker to indicate the image is local-only
+const isLocalImageMarker = "__LOCAL_IMAGE__"
 
 type UpdateResult struct {
 	Container string `json:"container"`
@@ -136,15 +145,25 @@ func (m *ContainerManager) CheckForUpdates(ctx context.Context, containerID stri
 		return []UpdateInfo{info}, nil
 	}
 
+	// Check if this is a local-only image (built locally without push to registry)
+	if localDigest == isLocalImageMarker {
+		info.Status = UpdateStatusLocal
+		info.Error = ""
+		return []UpdateInfo{info}, nil
+	}
+
 	// Sprawdź zdalny digest :latest
 	remoteDigest, err := m.getRemoteImageDigest(ctx, latestImage)
 	if err != nil {
 		if isRateLimitError(err) {
 			info.Status = UpdateStatusRateLimit
+			info.Error = err.Error()
 		} else {
-			info.Status = UpdateStatusUnknown
+			// If we can't get remote digest and it's not rate limit,
+			// the image might be local-only (not pushed to any registry)
+			info.Status = UpdateStatusLocal
+			info.Error = ""
 		}
-		info.Error = err.Error()
 		return []UpdateInfo{info}, nil
 	}
 
@@ -178,23 +197,28 @@ func (m *ContainerManager) CheckForUpdates(ctx context.Context, containerID stri
 }
 
 func (m *ContainerManager) UpdateContainer(ctx context.Context, containerID string) ([]UpdateResult, error) {
-	cmd := exec.Command("docker", "inspect", "--format", "{{.Name}}", containerID)
-	out, err := cmd.Output()
+	// Pobierz informacje o kontenerze przez API
+	inspect, err := m.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
-	containerName := strings.TrimPrefix(strings.TrimSpace(string(out)), "/")
 
-	cmd = exec.Command("docker", "inspect", "--format", "{{index .Config.Labels \"com.docker.compose.project\"}}", containerID)
-	out, _ = cmd.Output()
-	project := strings.TrimSpace(string(out))
+	containerName := strings.TrimPrefix(inspect.Container.Name, "/")
+	project := ""
+	workingDir := ""
+	imageName := ""
 
-	cmd = exec.Command("docker", "inspect", "--format", "{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}", containerID)
-	out, _ = cmd.Output()
-	workingDir := strings.TrimSpace(string(out))
+	if inspect.Container.Config != nil {
+		if inspect.Container.Config.Labels != nil {
+			project = strings.TrimSpace(inspect.Container.Config.Labels["com.docker.compose.project"])
+			workingDir = strings.TrimSpace(inspect.Container.Config.Labels["com.docker.compose.project.working_dir"])
+		}
+		imageName = strings.TrimSpace(inspect.Container.Config.Image)
+	}
 
 	if project != "" {
-		cmd = exec.Command("docker", "compose", "-p", project, "pull")
+		// Dla projektów compose używamy CLI (brak API do compose)
+		cmd := exec.Command("docker", "compose", "-p", project, "pull")
 		if workingDir != "" {
 			cmd.Dir = workingDir
 		}
@@ -215,44 +239,65 @@ func (m *ContainerManager) UpdateContainer(ctx context.Context, containerID stri
 		return []UpdateResult{{Container: containerName, Success: true, Message: "Container updated via compose"}}, nil
 	}
 
-	cmd = exec.Command("docker", "inspect", "--format", "{{.Config.Image}}", containerID)
-	out, err = cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get image: %w", err)
-	}
-	imageName := strings.TrimSpace(string(out))
-
 	result := []UpdateResult{{Container: containerName}}
 
-	cmd = exec.Command("docker", "pull", imageName)
-	output, err := cmd.CombinedOutput()
+	// Pull image via API
+	pullResp, err := m.cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
 	if err != nil {
 		result[0].Success = false
-		result[0].Message = fmt.Sprintf("failed to pull image: %s", output)
+		result[0].Message = fmt.Sprintf("failed to pull image: %v", err)
 		return result, nil
 	}
+	// Consume pull stream
+	_, _ = io.Copy(io.Discard, pullResp)
+	pullResp.Close()
 
-	cmd = exec.Command("docker", "stop", containerID)
-	_, err = cmd.Output()
+	// Stop container via API
+	stopOptions := client.ContainerStopOptions{
+		Timeout: func() *int { t := 10; return &t }(),
+	}
+	_, err = m.cli.ContainerStop(ctx, containerID, stopOptions)
 	if err != nil {
 		result[0].Success = false
 		result[0].Message = fmt.Sprintf("failed to stop: %v", err)
 		return result, nil
 	}
 
-	cmd = exec.Command("docker", "rm", containerID)
-	_, err = cmd.Output()
+	// Remove container via API
+	removeOptions := client.ContainerRemoveOptions{
+		Force: true,
+	}
+	_, err = m.cli.ContainerRemove(ctx, containerID, removeOptions)
 	if err != nil {
 		result[0].Success = false
 		result[0].Message = fmt.Sprintf("failed to remove: %v", err)
 		return result, nil
 	}
 
-	cmd = exec.Command("docker", "run", "-d", "--name", containerName, imageName)
-	_, err = cmd.Output()
+	// Create new container via API
+	// Pobierz konfigurację z inspect
+	config := inspect.Container.Config
+	hostConfig := inspect.Container.HostConfig
+
+	createOptions := client.ContainerCreateOptions{
+		Config:     config,
+		HostConfig: hostConfig,
+		Name:       containerName,
+	}
+
+	createResp, err := m.cli.ContainerCreate(ctx, createOptions)
 	if err != nil {
 		result[0].Success = false
 		result[0].Message = fmt.Sprintf("failed to recreate: %v", err)
+		return result, nil
+	}
+
+	// Start container via API
+	startOptions := client.ContainerStartOptions{}
+	_, err = m.cli.ContainerStart(ctx, createResp.ID, startOptions)
+	if err != nil {
+		result[0].Success = false
+		result[0].Message = fmt.Sprintf("failed to start: %v", err)
 		return result, nil
 	}
 
@@ -302,6 +347,8 @@ func (m *ContainerManager) CheckComposeUpdates(ctx context.Context, projectName,
 
 	hasUpdate := false
 	hasRateLimit := false
+	hasLocalImage := false
+	checkedImageCount := 0
 	unknownErrors := make([]string, 0)
 	rateLimitErrors := make([]string, 0)
 
@@ -315,6 +362,13 @@ func (m *ContainerManager) CheckComposeUpdates(ctx context.Context, projectName,
 			continue
 		}
 
+		// Skip local-only images (built locally without push to registry)
+		if localDigest == isLocalImageMarker {
+			hasLocalImage = true
+			continue
+		}
+
+		checkedImageCount++
 		remoteDigest, remoteErr := m.getRemoteImageDigest(ctx, latestImage)
 		if remoteErr != nil {
 			if isRateLimitError(remoteErr) {
@@ -345,6 +399,9 @@ func (m *ContainerManager) CheckComposeUpdates(ctx context.Context, projectName,
 	} else if len(unknownErrors) > 0 {
 		info.Status = UpdateStatusUnknown
 		info.Error = strings.Join(unknownErrors, "; ")
+	} else if hasLocalImage && checkedImageCount == 0 {
+		// All images in the group are local-only
+		info.Status = UpdateStatusLocal
 	}
 
 	return []UpdateInfo{info}, nil
@@ -356,10 +413,19 @@ func (m *ContainerManager) getLocalImageDigest(ctx context.Context, image string
 		return "", fmt.Errorf("failed to inspect local image: %w", err)
 	}
 
+	// Local images built without push to registry have empty RepoDigests
 	if len(inspect.RepoDigests) == 0 {
-		return "", fmt.Errorf("local digest is empty")
+		return isLocalImageMarker, nil
 	}
 
+	// Check if image has Identity information from a registry
+	// Local images don't have Identity.Pull set, remote images do
+	if inspect.Identity == nil || len(inspect.Identity.Pull) == 0 {
+		// No identity information - this is a local-only image
+		return isLocalImageMarker, nil
+	}
+
+	// Has identity from registry - find matching digest
 	for _, repoDigest := range inspect.RepoDigests {
 		digest, ok := digestFromRepoDigest(repoDigest)
 		if !ok {
@@ -379,7 +445,8 @@ func (m *ContainerManager) getLocalImageDigest(ctx context.Context, image string
 		}
 	}
 
-	return "", fmt.Errorf("local digest format invalid")
+	// If we have RepoDigests but none match, treat as local image
+	return isLocalImageMarker, nil
 }
 
 func (m *ContainerManager) getRemoteImageDigest(ctx context.Context, image string) (string, error) {
@@ -441,15 +508,6 @@ func (m *ContainerManager) UpdateComposeGroup(ctx context.Context, projectName, 
 		Success:   true,
 		Message:   "Compose group updated successfully",
 	}}, nil
-}
-
-func (m *ContainerManager) pullImage(ctx context.Context, imageName string) error {
-	cmd := exec.CommandContext(ctx, "docker", "pull", imageName)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to pull image: %w\n%s", err, output)
-	}
-	return nil
 }
 
 func normalizeImageRef(image string) string {
@@ -536,36 +594,6 @@ func isRateLimitError(err error) bool {
 		strings.Contains(msg, "429")
 }
 
-func findComposeFile(projectName string) (string, error) {
-	commonFiles := []string{
-		"docker-compose.yml",
-		"docker-compose.yaml",
-		"compose.yml",
-		"compose.yaml",
-	}
-
-	searchDirs := []string{".", "/opt/" + projectName, "/home/" + os.Getenv("USER") + "/" + projectName}
-
-	for _, dir := range searchDirs {
-		for _, file := range commonFiles {
-			path := dir + "/" + file
-			if _, err := os.Stat(path); err == nil {
-				return path, nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("compose file not found for project %s", projectName)
-}
-
-func getComposeDir(composeFile string) string {
-	parts := strings.Split(composeFile, "/")
-	if len(parts) > 1 {
-		return strings.Join(parts[:len(parts)-1], "/")
-	}
-	return "."
-}
-
 func FindContainerByName(ctx context.Context, cli *client.Client, name string) (string, error) {
 	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
@@ -593,17 +621,4 @@ func FindContainerByName(ctx context.Context, cli *client.Client, name string) (
 	}
 
 	return "", fmt.Errorf("container not found: %s", name)
-}
-
-func FindComposeProjectByContainer(ctx context.Context, cli *client.Client, containerID string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{index .Config.Labels \"com.docker.compose.project\"}}", containerID)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	project := strings.TrimSpace(string(out))
-	if project != "" {
-		return project, nil
-	}
-	return "", nil
 }

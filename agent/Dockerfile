@@ -18,4 +18,4 @@ WORKDIR /app
 COPY --from=builder /build/agent /app/agent
 
 ENTRYPOINT ["/app/agent"]
-CMD ["check-updates"]
+CMD ["stats"]

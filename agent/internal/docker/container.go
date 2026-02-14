@@ -132,13 +132,15 @@ func CollectContainerMetrics(ctx context.Context, cli *client.Client) (*Containe
 			info.Labels = filterLabels(c.Labels)
 		}
 
-		statsResp, err := cli.ContainerStats(ctx, c.ID, client.ContainerStatsOptions{Stream: false})
-		if err == nil {
-			var stats container.StatsResponse
-			if err := json.NewDecoder(statsResp.Body).Decode(&stats); err == nil {
-				info.Stats = parseContainerStats(&stats)
+		if string(c.State) == "running" {
+			statsResp, err := cli.ContainerStats(ctx, c.ID, client.ContainerStatsOptions{Stream: false})
+			if err == nil {
+				var stats container.StatsResponse
+				if err := json.NewDecoder(statsResp.Body).Decode(&stats); err == nil {
+					info.Stats = parseContainerStats(&stats)
+				}
+				_ = statsResp.Body.Close()
 			}
-			_ = statsResp.Body.Close()
 		}
 
 		inspect, err := cli.ContainerInspect(ctx, c.ID, client.ContainerInspectOptions{})

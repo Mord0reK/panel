@@ -46,11 +46,10 @@ type CPUInfo struct {
 }
 
 type MemoryStats struct {
-	Total       uint64  `json:"total"`
-	Available   uint64  `json:"available"`
-	Used        uint64  `json:"used"`
-	Percent     float64 `json:"percent"`
-	UsedPercent float64 `json:"used_percent"`
+	Total     uint64  `json:"total"`
+	Available uint64  `json:"available"`
+	Used      uint64  `json:"used"`
+	Percent   float64 `json:"percent"`
 }
 
 type MemoryInfo struct {
@@ -172,11 +171,10 @@ func CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 		return nil, err
 	}
 	metrics.Memory = MemoryStats{
-		Total:       memStats.Total,
-		Available:   memStats.Available,
-		Used:        memStats.Used,
-		Percent:     memStats.UsedPercent,
-		UsedPercent: memStats.UsedPercent,
+		Total:     memStats.Total,
+		Available: memStats.Available,
+		Used:      memStats.Used,
+		Percent:   memStats.UsedPercent,
 	}
 
 	diskParts, err := disk.PartitionsWithContext(ctx, false)

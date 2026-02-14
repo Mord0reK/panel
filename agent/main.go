@@ -77,7 +77,7 @@ func runStats() {
 		}
 	}
 
-	filename := "stats.json"
+	filename := "data/stats.json"
 	if err := output.WriteToJSON(filename, sysMetrics, dockerMetrics); err != nil {
 		log.Fatalf("Error writing metrics: %v", err)
 	}
@@ -220,6 +220,8 @@ func runCheckUpdates(args []string) {
 					} else {
 						fmt.Printf("  %s: unknown\n", group.Name)
 					}
+				case docker.UpdateStatusLocal:
+					fmt.Printf("  %s: local\n", group.Name)
 				default:
 					fmt.Printf("  %s: up to date\n", group.Name)
 				}
