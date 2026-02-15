@@ -57,8 +57,10 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.connected = true
 	c.closeMu.Unlock()
 
-	c.connectedCh <- true
-	log.Printf("WebSocket connected to %s", c.url)
+	select {
+	case c.connectedCh <- true:
+	default:
+	}
 
 	return nil
 }
@@ -84,6 +86,7 @@ func (c *Client) reconnect(ctx context.Context) {
 			continue
 		}
 
+		log.Printf("WebSocket reconnected to %s", c.url)
 		return
 	}
 }
@@ -231,7 +234,12 @@ func (c *Client) Reconnect(ctx context.Context) error {
 	}
 	c.closeMu.Unlock()
 
-	return c.Connect(ctx)
+	if err := c.Connect(ctx); err != nil {
+		return err
+	}
+
+	log.Printf("WebSocket reconnected to %s", c.url)
+	return nil
 }
 
 type Message struct {

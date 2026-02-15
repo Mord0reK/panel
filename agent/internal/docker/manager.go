@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/moby/moby/client"
 )
@@ -17,6 +18,8 @@ type ContainerManager struct {
 	cacheMu           sync.RWMutex
 }
 
+const cacheTTL = 6 * time.Hour
+
 func NewContainerManager(cli *client.Client) *ContainerManager {
 	return &ContainerManager{
 		cli:               cli,
@@ -25,8 +28,9 @@ func NewContainerManager(cli *client.Client) *ContainerManager {
 }
 
 type cachedDigestResult struct {
-	digest string
-	errMsg string
+	digest    string
+	errMsg    string
+	expiresAt time.Time
 }
 
 func (m *ContainerManager) StopContainer(ctx context.Context, containerID string) error {
@@ -452,11 +456,13 @@ func (m *ContainerManager) getLocalImageDigest(ctx context.Context, image string
 func (m *ContainerManager) getRemoteImageDigest(ctx context.Context, image string) (string, error) {
 	m.cacheMu.RLock()
 	if cached, ok := m.remoteDigestCache[image]; ok {
-		m.cacheMu.RUnlock()
-		if cached.errMsg != "" {
-			return "", fmt.Errorf("%s", cached.errMsg)
+		if time.Now().Before(cached.expiresAt) {
+			m.cacheMu.RUnlock()
+			if cached.errMsg != "" {
+				return "", fmt.Errorf("%s", cached.errMsg)
+			}
+			return cached.digest, nil
 		}
-		return cached.digest, nil
 	}
 	m.cacheMu.RUnlock()
 
@@ -480,7 +486,17 @@ func (m *ContainerManager) getRemoteImageDigest(ctx context.Context, image strin
 
 func (m *ContainerManager) cacheRemoteDigest(image, digest, errMsg string) {
 	m.cacheMu.Lock()
-	m.remoteDigestCache[image] = cachedDigestResult{digest: digest, errMsg: errMsg}
+	now := time.Now()
+	for key, cached := range m.remoteDigestCache {
+		if now.After(cached.expiresAt) {
+			delete(m.remoteDigestCache, key)
+		}
+	}
+	m.remoteDigestCache[image] = cachedDigestResult{
+		digest:    digest,
+		errMsg:    errMsg,
+		expiresAt: now.Add(cacheTTL),
+	}
 	m.cacheMu.Unlock()
 }
 
