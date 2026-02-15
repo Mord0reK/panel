@@ -71,6 +71,11 @@ func main() {
 		fmt.Println("  check-updates [container|project] - Check for updates")
 		fmt.Println("  update <container|project> - Update container or compose project")
 		fmt.Println("")
+		fmt.Println("WebSocket actions:")
+		fmt.Println("  stats              - system + full docker metrics")
+		fmt.Println("  info               - static system information")
+		fmt.Println("  docker-details     - full docker details (labels, network, compose groups)")
+		fmt.Println("")
 		fmt.Println("Environment variables:")
 		fmt.Println("  BACKEND_URL        - WebSocket server URL for 'ws' command")
 	}
@@ -181,7 +186,7 @@ func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client, dockerCli 
 
 			var dockerMetrics interface{}
 			if dockerCli != nil {
-				dm, _ := docker.CollectContainerMetrics(ctx, dockerCli)
+				dm, _ := docker.CollectRealtimeContainerMetrics(ctx, dockerCli)
 				dockerMetrics = dm
 			}
 
@@ -224,6 +229,18 @@ func handleWebSocketCommand(ctx context.Context, wsClient *websocket.Client, doc
 			result = map[string]interface{}{"error": err.Error()}
 		} else {
 			result = map[string]interface{}{"info": info}
+		}
+
+	case "docker-details":
+		if dockerCli == nil {
+			result = map[string]interface{}{"error": "docker client unavailable"}
+		} else {
+			details, err := docker.CollectContainerMetrics(ctx, dockerCli)
+			if err != nil {
+				result = map[string]interface{}{"error": err.Error()}
+			} else {
+				result = map[string]interface{}{"docker": details}
+			}
 		}
 
 	case "stop":

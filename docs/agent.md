@@ -14,7 +14,7 @@ Agent monitorujący zasoby systemowe i kontenery Docker napisany w języku Go.
 
 ### Wymagania
 
-- Go 1.21+
+- Go 1.24+
 - Docker (lokalny socket)
 
 ### Budowanie
@@ -32,13 +32,7 @@ go build -o agent .
 ./agent
 ```
 
-Zbiera statystyki i zapisuje do pliku `stats.json`.
-
-### Określenie pliku wyjściowego
-
-```bash
-./agent custom-stats.json
-```
+Zbiera statystyki i zapisuje do pliku `data/stats.json`.
 
 ## Komendy CLI
 
@@ -69,6 +63,17 @@ Zwracane informacje:
 - Czas bootowania
 - Liczba procesów
 - Host ID
+
+### ws
+
+Uruchamia agenta w trybie WebSocket - łączy się z backendem i wysyła metryki w czasie rzeczywistym.
+
+```bash
+./agent ws
+./agent --backend-url ws://192.168.0.10:8080 ws
+```
+
+Wymaga ustawienia `BACKEND_URL` (zmienna środowiskowa) lub flagi `--backend-url`.
 
 ### stop
 
@@ -116,9 +121,13 @@ Sprawdza dostępność aktualizacji.
 Algorytm sprawdzania aktualizacji:
 - porównanie lokalnego digestu obrazu z digestem z rejestru (digest-first),
 - bez heurystyk opartych o tekst z `docker pull --dry-run`,
-- status wyniku: `up_to_date`, `update_available`, `unknown`.
+- status wyniku: `up_to_date`, `update_available`, `rate_limited`, `local`, `unknown`.
 
 Status `unknown` oznacza, że nie udało się wiarygodnie sprawdzić aktualizacji (np. problem z dostępem do registry, autoryzacją lub manifestem).
+
+Status `rate_limited` oznacza, że rejestr Docker ograniczył liczbę zapytań (np. Docker Hub rate limit).
+
+Status `local` oznacza, że obraz jest zbudowany lokalnie i nie ma odpowiednika w zdalnym rejestrze.
 
 ### update
 
@@ -133,6 +142,34 @@ Aktualizuje kontener lub grupę compose.
 ```
 
 ## Struktura danych
+
+## WebSocket (tryb `ws`)
+
+Po połączeniu agent wysyła co 1s wiadomość typu `metrics` z lekkim payloadem realtime.
+
+### `metrics` (co 1s)
+
+- `system` - metryki hosta (CPU, RAM, dysk, sieć)
+- `docker.timestamp`
+- `docker.containers[]` tylko dla kontenerów `running`:
+  - `id`
+  - `name`
+  - `status`
+  - `state`
+  - `stats` (cpu, memory, block_io, network, pids)
+
+W payloadzie 1s celowo **nie ma**: `network_info`, `labels`, `compose_groups`, `standalone_containers`.
+
+### Akcje WebSocket (request/response)
+
+- `stats` - pełne metryki (system + pełny Docker payload)
+- `info` - informacje statyczne o systemie
+- `docker-details` - pełne detale Docker (`network_info`, `labels`, `compose_groups`, `standalone_containers`)
+- `start` - uruchomienie kontenera (wymaga `target`)
+- `stop` - zatrzymanie kontenera (wymaga `target`)
+- `restart` - restart kontenera (wymaga `target`)
+- `check-updates` - sprawdzenie aktualizacji (opcjonalny `target` - kontener lub projekt)
+- `update` - aktualizacja kontenera lub grupy compose (wymaga `target`)
 
 ### Info (system info)
 
@@ -214,12 +251,16 @@ Aktualizuje kontener lub grupę compose.
             "percent": 0.15,
             "cpu_container": 7113262000,
             "cpu_system": 93360800000000,
+            "cpu_user": 0,
             "online_cpus": 20
           },
           "memory": {
             "usage": 59637760,
             "limit": 32673112064,
-            "percent": 0.18
+            "percent": 0.18,
+            "cache": 0,
+            "rss": 0,
+            "swap": 0
           },
           "block_io": {
             "read_bytes": 35725312,
@@ -229,7 +270,9 @@ Aktualizuje kontener lub grupę compose.
             "rx_bytes": 0,
             "tx_bytes": 0,
             "rx_packets": 0,
-            "tx_packets": 0
+            "tx_packets": 0,
+            "rx_errors": 0,
+            "tx_errors": 0
           },
           "pids": 14
         },
@@ -290,12 +333,27 @@ Aktualizuje kontener lub grupę compose.
 | containers[].image | string | Obraz Docker |
 | containers[].status | string | Status kontenera |
 | containers[].state | string | Stan (running, exited, paused) |
-| containers[].created | int64 | Timestamp创建ania |
+| containers[].created | int64 | Timestamp utworzenia |
 | containers[].stats | object | Statystyki kontenera |
-| containers[].stats.cpu | object | Statystyki CPU |
-| containers[].stats.memory | object | Statystyki pamięci |
-| containers[].stats.block_io | object | Statystyki I/O |
-| containers[].stats.network | object | Statystyki sieci |
+| containers[].stats.cpu.percent | float64 | Procentowe użycie CPU |
+| containers[].stats.cpu.cpu_container | float64 | Użycie CPU kontenera (ns) |
+| containers[].stats.cpu.cpu_system | float64 | Użycie CPU systemu (ns) |
+| containers[].stats.cpu.cpu_user | float64 | Użycie CPU użytkownika (ns) |
+| containers[].stats.cpu.online_cpus | int64 | Liczba dostępnych CPU |
+| containers[].stats.memory.usage | uint64 | Użycie pamięci |
+| containers[].stats.memory.limit | uint64 | Limit pamięci (0 = brak) |
+| containers[].stats.memory.percent | float64 | Procent użycia pamięci |
+| containers[].stats.memory.cache | uint64 | Pamięć cache |
+| containers[].stats.memory.rss | uint64 | Pamięć RSS |
+| containers[].stats.memory.swap | uint64 | Pamięć swap |
+| containers[].stats.block_io.read_bytes | uint64 | Odczytane bajty |
+| containers[].stats.block_io.write_bytes | uint64 | Zapisane bajty |
+| containers[].stats.network.rx_bytes | uint64 | Odebrane bajty |
+| containers[].stats.network.tx_bytes | uint64 | Wysłane bajty |
+| containers[].stats.network.rx_packets | uint64 | Odebrane pakiety |
+| containers[].stats.network.tx_packets | uint64 | Wysłane pakiety |
+| containers[].stats.network.rx_errors | uint64 | Błędy odbioru |
+| containers[].stats.network.tx_errors | uint64 | Błędy wysyłania |
 | containers[].stats.pids | int64 | Liczba procesów |
 | containers[].network_info | object | Informacje o sieci |
 | containers[].project | string | Projekt compose |
@@ -306,6 +364,18 @@ Aktualizuje kontener lub grupę compose.
 
 ## Konfiguracja
 
+### Zmienne środowiskowe
+
+| Zmienna | Opis |
+|---------|------|
+| `BACKEND_URL` | URL serwera WebSocket dla komendy `ws` (np. `ws://192.168.0.10:8080`) |
+
+### Flagi CLI
+
+| Flaga | Opis |
+|-------|------|
+| `--backend-url` | URL serwera WebSocket (alternatywa dla `BACKEND_URL`) |
+
 ### Filtrowanie danych
 
 Agent automatycznie filtruje:
@@ -314,7 +384,7 @@ Agent automatycznie filtruje:
 - Ignorowane: `/boot/efi`, `/boot`, `/run`, `/run/lock`, `/snap`, `/sys`, `/proc`, `/dev`, `/dev/shm`
 
 #### Sieć (system)
-- Ignorowane: `lo`, `virbr*`, `docker0`, `br-*`, `veth-*`, `tailscale0`
+- Ignorowane: `lo`, `virbr*`, `docker0`, `br-*`, `veth*`, `tailscale0`
 
 #### Labels (kontenery)
 Zachowane tylko przydatne do aktualizacji:
@@ -346,4 +416,7 @@ Polecenie:
 
 ## Integracja z Backendem
 
-Agent jest przygotowany do przyszłej integracji z backendem przez WebSocket. Struktura danych jest zoptymalizowana pod kątem przesyłania w czasie rzeczywistym.
+Agent jest przygotowany do integracji z backendem przez WebSocket.
+
+- Kanał `metrics` jest zoptymalizowany pod realtime i ma mały payload.
+- Szczegółowe dane Docker są dostępne na żądanie przez akcję `docker-details`.

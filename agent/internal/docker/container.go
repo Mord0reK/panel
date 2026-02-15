@@ -32,6 +32,19 @@ type ContainerMetrics struct {
 	StandaloneContainers []ContainerInfo `json:"standalone_containers,omitempty"`
 }
 
+type RealtimeContainerInfo struct {
+	ID     string          `json:"id"`
+	Name   string          `json:"name"`
+	Status string          `json:"status"`
+	State  string          `json:"state"`
+	Stats  *ContainerStats `json:"stats,omitempty"`
+}
+
+type RealtimeContainerMetrics struct {
+	Timestamp  time.Time               `json:"timestamp"`
+	Containers []RealtimeContainerInfo `json:"containers"`
+}
+
 type ComposeGroup struct {
 	Name       string          `json:"name"`
 	Project    string          `json:"project"`
@@ -174,6 +187,48 @@ func CollectContainerMetrics(ctx context.Context, cli *client.Client) (*Containe
 	grouped := GroupContainersByCompose(metrics.Containers)
 	metrics.ComposeGroups = grouped.Groups
 	metrics.StandaloneContainers = grouped.StandaloneContainers
+
+	return metrics, nil
+}
+
+func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*RealtimeContainerMetrics, error) {
+	metrics := &RealtimeContainerMetrics{
+		Timestamp: time.Now(),
+	}
+
+	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: false})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list running containers: %w", err)
+	}
+
+	for _, c := range containers.Items {
+		if string(c.State) != "running" {
+			continue
+		}
+
+		name := c.Names[0]
+		if len(name) > 0 && name[0] == '/' {
+			name = name[1:]
+		}
+
+		info := RealtimeContainerInfo{
+			ID:     c.ID[:12],
+			Name:   name,
+			Status: c.Status,
+			State:  string(c.State),
+		}
+
+		statsResp, err := cli.ContainerStats(ctx, c.ID, client.ContainerStatsOptions{Stream: false})
+		if err == nil {
+			var stats container.StatsResponse
+			if err := json.NewDecoder(statsResp.Body).Decode(&stats); err == nil {
+				info.Stats = parseContainerStats(&stats)
+			}
+			_ = statsResp.Body.Close()
+		}
+
+		metrics.Containers = append(metrics.Containers, info)
+	}
 
 	return metrics, nil
 }
