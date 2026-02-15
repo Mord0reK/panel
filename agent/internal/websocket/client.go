@@ -19,19 +19,17 @@ const (
 )
 
 type Client struct {
-	url         string
-	conn        *websocket.Conn
-	writeMu     sync.Mutex
-	connected   bool
-	connectedCh chan bool
-	closed      bool
-	closeMu     sync.Mutex
+	url       string
+	conn      *websocket.Conn
+	writeMu   sync.Mutex
+	connected bool
+	closed    bool
+	closeMu   sync.Mutex
 }
 
 func NewClient(url string) *Client {
 	return &Client{
-		url:         url,
-		connectedCh: make(chan bool, 1),
+		url: url,
 	}
 }
 
@@ -56,11 +54,6 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.conn = conn
 	c.connected = true
 	c.closeMu.Unlock()
-
-	select {
-	case c.connectedCh <- true:
-	default:
-	}
 
 	return nil
 }
@@ -92,27 +85,9 @@ func (c *Client) reconnect(ctx context.Context) {
 }
 
 func (c *Client) SendMessage(msgType string, data interface{}) error {
-	c.closeMu.Lock()
-	if c.closed || !c.connected || c.conn == nil {
-		c.closeMu.Unlock()
-		return fmt.Errorf("not connected")
-	}
-	c.closeMu.Unlock()
-
 	msg := Message{
 		Type: msgType,
 		Data: data,
-	}
-
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-
-	c.closeMu.Lock()
-	conn := c.conn
-	c.closeMu.Unlock()
-
-	if conn == nil {
-		return fmt.Errorf("connection is nil")
 	}
 
 	dataBytes, err := json.Marshal(msg)
@@ -120,15 +95,23 @@ func (c *Client) SendMessage(msgType string, data interface{}) error {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	err = conn.WriteMessage(websocket.TextMessage, dataBytes)
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+
+	if c.closed || !c.connected || c.conn == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	err = c.conn.WriteMessage(websocket.TextMessage, dataBytes)
 	if err != nil {
-		c.closeMu.Lock()
 		c.connected = false
 		if c.conn != nil {
 			c.conn.Close()
 			c.conn = nil
 		}
-		c.closeMu.Unlock()
 		return fmt.Errorf("failed to write message: %w", err)
 	}
 
@@ -148,24 +131,36 @@ func (c *Client) Listen(ctx context.Context, handler func(Command) error) error 
 		return conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	readCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	// Ping goroutine
+	pingCtx, cancelPing := context.WithCancel(ctx)
+	defer cancelPing()
 
-	pingTicker := time.NewTicker(pingPeriod)
-	defer pingTicker.Stop()
+	go func() {
+		ticker := time.NewTicker(pingPeriod)
+		defer ticker.Stop()
 
+		for {
+			select {
+			case <-pingCtx.Done():
+				return
+			case <-ticker.C:
+				c.writeMu.Lock()
+				err := conn.WriteMessage(websocket.PingMessage, nil)
+				c.writeMu.Unlock()
+				if err != nil {
+					log.Printf("Ping error: %v", err)
+					cancelPing()
+					return
+				}
+			}
+		}
+	}()
+
+	// Main read loop
 	for {
 		select {
-		case <-readCtx.Done():
+		case <-ctx.Done():
 			return nil
-		case <-pingTicker.C:
-			c.writeMu.Lock()
-			err := conn.WriteMessage(websocket.PingMessage, nil)
-			c.writeMu.Unlock()
-			if err != nil {
-				log.Printf("Ping error: %v", err)
-				return fmt.Errorf("ping failed: %w", err)
-			}
 		default:
 		}
 
