@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 
 	"agent/internal/collector"
 	"agent/internal/docker"
+	"agent/internal/metrics"
 	"agent/internal/output"
 	"agent/internal/websocket"
 
@@ -22,6 +25,11 @@ import (
 const updateCheckConcurrency = 4
 
 var backendURL string
+
+func generateAgentUUID(hostID string) string {
+	hash := sha1.Sum([]byte(hostID))
+	return hex.EncodeToString(hash[:])
+}
 
 func init() {
 	flag.StringVar(&backendURL, "backend-url", "", "WebSocket backend URL (or use BACKEND_URL env var)")
@@ -126,12 +134,71 @@ func runWebSocket() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	sysInfo, err := collector.CollectSystemInfo(ctx)
+	if err != nil {
+		log.Fatalf("Failed to collect system info: %v", err)
+	}
+
+	agentUUID := generateAgentUUID(sysInfo.HostID)
+	log.Printf("Agent UUID: %s", agentUUID)
+	log.Printf("Hostname: %s", sysInfo.Hostname)
+
 	wsClient := websocket.NewClient(backendURL)
 
 	if err := wsClient.Connect(ctx); err != nil {
 		log.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
 	log.Printf("WebSocket connected to %s", backendURL)
+
+	err = wsClient.SendAuth(agentUUID, websocket.AuthInfo{
+		Hostname:     sysInfo.Hostname,
+		CPUModel:     sysInfo.CPU.ModelName,
+		CPUCores:     sysInfo.CPU.LogicalCores,
+		MemoryTotal:  sysInfo.Memory.Total,
+		Platform:     sysInfo.Platform,
+		Kernel:       sysInfo.Kernel,
+		Architecture: sysInfo.Architecture,
+	})
+	if err != nil {
+		log.Printf("Failed to send auth: %v", err)
+		wsClient.Close()
+		os.Exit(1)
+	}
+	log.Printf("Auth message sent, waiting for approval...")
+
+	approved, err := wsClient.WaitForAuthResponse(ctx)
+	if err != nil {
+		log.Printf("Failed to get auth response: %v", err)
+		wsClient.Close()
+		os.Exit(1)
+	}
+
+	if !approved {
+		log.Printf("Server not approved. Waiting for approval from backend...")
+		for {
+			select {
+			case <-ctx.Done():
+				wsClient.Close()
+				return
+			case <-time.After(10 * time.Second):
+				approved, err := wsClient.CheckApproval(ctx)
+				if err != nil {
+					log.Printf("Failed to check approval: %v", err)
+					continue
+				}
+				if approved {
+					log.Printf("Server approved! Starting metrics...")
+					break
+				}
+				log.Printf("Still waiting for approval...")
+			}
+			if approved {
+				break
+			}
+		}
+	} else {
+		log.Printf("Server approved! Starting metrics...")
+	}
 
 	dockerCli, err := docker.NewDockerClient()
 	if err != nil {
@@ -143,11 +210,12 @@ func runWebSocket() {
 		}
 	}()
 
-	go sendMetricsLoop(ctx, wsClient, dockerCli)
+	snapshotCollector := metrics.NewSnapshotCollector()
+	go sendMetricsLoop(ctx, wsClient, dockerCli, snapshotCollector)
 
 	for {
 		err := wsClient.Listen(ctx, func(cmd websocket.Command) error {
-			return handleWebSocketCommand(ctx, wsClient, dockerCli, cmd)
+			return handleWebSocketCommand(ctx, wsClient, dockerCli, snapshotCollector, cmd)
 		})
 
 		log.Printf("WebSocket connection lost: %v", err)
@@ -165,7 +233,7 @@ func runWebSocket() {
 	}
 }
 
-func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client, dockerCli *client.Client) {
+func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client, dockerCli *client.Client, snapshotCollector *metrics.SnapshotCollector) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -178,23 +246,17 @@ func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client, dockerCli 
 				continue
 			}
 
-			sysMetrics, err := collector.CollectSystemMetrics(ctx)
+			snapshot, err := snapshotCollector.Collect(ctx, dockerCli)
 			if err != nil {
-				log.Printf("Error collecting system metrics: %v", err)
+				log.Printf("Error collecting snapshot metrics: %v", err)
 				continue
 			}
 
-			var dockerMetrics interface{}
-			if dockerCli != nil {
-				dm, _ := docker.CollectRealtimeContainerMetrics(ctx, dockerCli)
-				dockerMetrics = dm
-			}
-
 			msg := websocket.MetricsMessage{
-				Type:      "metrics",
-				Timestamp: sysMetrics.Timestamp,
-				System:    sysMetrics,
-				Docker:    dockerMetrics,
+				Type:       "metrics",
+				Timestamp:  snapshot.Timestamp,
+				Host:       snapshot.Host,
+				Containers: snapshot.Containers,
 			}
 
 			if err := wsClient.SendMessage("metrics", msg); err != nil {
@@ -204,23 +266,23 @@ func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client, dockerCli 
 	}
 }
 
-func handleWebSocketCommand(ctx context.Context, wsClient *websocket.Client, dockerCli *client.Client, cmd websocket.Command) error {
-	log.Printf("Received command: type=%s action=%s target=%s", cmd.Type, cmd.Action, cmd.Target)
+func handleWebSocketCommand(ctx context.Context, wsClient *websocket.Client, dockerCli *client.Client, snapshotCollector *metrics.SnapshotCollector, cmd websocket.Command) error {
+	log.Printf("Received command: type=%s command_id=%s action=%s target=%s", cmd.Type, cmd.CommandID, cmd.Action, cmd.Target)
 
 	var result map[string]interface{}
 
 	switch cmd.Action {
 	case "stats":
-		sysMetrics, err := collector.CollectSystemMetrics(ctx)
+		snapshot, err := snapshotCollector.Collect(ctx, dockerCli)
 		if err != nil {
 			result = map[string]interface{}{"error": err.Error()}
 		} else {
-			var dockerMetrics interface{}
-			if dockerCli != nil {
-				dm, _ := docker.CollectContainerMetrics(ctx, dockerCli)
-				dockerMetrics = dm
+			result = map[string]interface{}{
+				"snapshot":   snapshot,
+				"host":       snapshot.Host,
+				"system":     snapshot.Host, // compatibility alias
+				"containers": snapshot.Containers,
 			}
-			result = map[string]interface{}{"system": sysMetrics, "docker": dockerMetrics}
 		}
 
 	case "info":
@@ -308,7 +370,21 @@ func handleWebSocketCommand(ctx context.Context, wsClient *websocket.Client, doc
 		result = map[string]interface{}{"error": "unknown action: " + cmd.Action}
 	}
 
-	return wsClient.SendMessage("result", result)
+	resp := map[string]interface{}{
+		"command_id": cmd.CommandID,
+		"result":     result,
+	}
+
+	log.Printf("Sending response for command %s", cmd.CommandID)
+	err := wsClient.SendMessage("response", map[string]interface{}{
+		"type":       "response",
+		"command_id": cmd.CommandID,
+		"payload":    resp,
+	})
+	if err != nil {
+		log.Printf("Failed to send command response: %v", err)
+	}
+	return err
 }
 
 func runStopContainer(ctx context.Context, dockerCli *client.Client, containerName string) error {

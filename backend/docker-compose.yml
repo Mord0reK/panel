@@ -1,0 +1,11 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - PORT=8080
+      - DATABASE_PATH=/data/backend.db
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}

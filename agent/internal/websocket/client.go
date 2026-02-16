@@ -85,12 +85,7 @@ func (c *Client) reconnect(ctx context.Context) {
 }
 
 func (c *Client) SendMessage(msgType string, data interface{}) error {
-	msg := Message{
-		Type: msgType,
-		Data: data,
-	}
-
-	dataBytes, err := json.Marshal(msg)
+	dataBytes, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
@@ -116,6 +111,76 @@ func (c *Client) SendMessage(msgType string, data interface{}) error {
 	}
 
 	return nil
+}
+
+func (c *Client) SendAuth(uuid string, info AuthInfo) error {
+	msg := AuthMessage{
+		Type: "auth",
+		UUID: uuid,
+		Info: info,
+	}
+
+	dataBytes, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth message: %w", err)
+	}
+
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+
+	if c.closed || !c.connected || c.conn == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	err = c.conn.WriteMessage(websocket.TextMessage, dataBytes)
+	if err != nil {
+		c.connected = false
+		if c.conn != nil {
+			c.conn.Close()
+			c.conn = nil
+		}
+		return fmt.Errorf("failed to write auth message: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Client) WaitForAuthResponse(ctx context.Context) (bool, error) {
+	conn := c.conn
+	if conn == nil {
+		return false, fmt.Errorf("not connected")
+	}
+
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		default:
+		}
+
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			return false, fmt.Errorf("failed to read message: %w", err)
+		}
+
+		var resp AuthResponseMessage
+		if err := json.Unmarshal(message, &resp); err != nil {
+			continue
+		}
+
+		if resp.Type == "auth_response" {
+			return resp.Approved, nil
+		}
+	}
+}
+
+func (c *Client) CheckApproval(ctx context.Context) (bool, error) {
+	return c.WaitForAuthResponse(ctx)
 }
 
 func (c *Client) Listen(ctx context.Context, handler func(Command) error) error {
@@ -243,15 +308,37 @@ type Message struct {
 }
 
 type Command struct {
-	Type   string          `json:"type"`
-	Action string          `json:"action"`
-	Target string          `json:"target,omitempty"`
-	Args   json.RawMessage `json:"args,omitempty"`
+	Type      string          `json:"type"`
+	CommandID string          `json:"command_id"`
+	Action    string          `json:"action"`
+	Target    string          `json:"target,omitempty"`
+	Args      json.RawMessage `json:"args,omitempty"`
 }
 
 type MetricsMessage struct {
-	Type      string      `json:"type"`
-	Timestamp time.Time   `json:"timestamp"`
-	System    interface{} `json:"system,omitempty"`
-	Docker    interface{} `json:"docker,omitempty"`
+	Type       string      `json:"type"`
+	Timestamp  int64       `json:"timestamp"`
+	Host       interface{} `json:"host,omitempty"`
+	Containers interface{} `json:"containers,omitempty"`
+}
+
+type AuthMessage struct {
+	Type string   `json:"type"`
+	UUID string   `json:"uuid"`
+	Info AuthInfo `json:"info"`
+}
+
+type AuthInfo struct {
+	Hostname     string `json:"hostname"`
+	CPUModel     string `json:"cpu_model"`
+	CPUCores     int    `json:"cpu_cores"`
+	MemoryTotal  uint64 `json:"memory_total"`
+	Platform     string `json:"platform"`
+	Kernel       string `json:"kernel"`
+	Architecture string `json:"architecture"`
+}
+
+type AuthResponseMessage struct {
+	Type     string `json:"type"`
+	Approved bool   `json:"approved"`
 }

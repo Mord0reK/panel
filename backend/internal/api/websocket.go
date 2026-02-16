@@ -1,0 +1,263 @@
+package api
+
+import (
+	"database/sql"
+	"encoding/json"
+	"log"
+	"net/http"
+	"time"
+
+	"backend/internal/buffer"
+	"backend/internal/models"
+	ws "backend/internal/websocket"
+
+	"github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for agents
+	},
+}
+
+type WebSocketHandler struct {
+	hub           *ws.AgentHub
+	db            *sql.DB
+	bufferManager *buffer.BufferManager
+}
+
+func NewWebSocketHandler(hub *ws.AgentHub, db *sql.DB, bufferManager *buffer.BufferManager) *WebSocketHandler {
+	return &WebSocketHandler{hub: hub, db: db, bufferManager: bufferManager}
+}
+
+func (h *WebSocketHandler) HandleAgent(w http.ResponseWriter, r *http.Request) {
+	log.Println("WebSocket: new connection request from", r.RemoteAddr)
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("upgrade:", err)
+		return
+	}
+
+	log.Println("WebSocket: connection upgraded, waiting for auth message")
+
+	// 1. Wait for Auth
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, message, err := conn.ReadMessage()
+	if err != nil {
+		log.Println("WebSocket: failed to read auth message:", err)
+		conn.Close()
+		return
+	}
+
+	log.Printf("WebSocket: received message: %s", string(message))
+
+	msg, err := ws.ParseMessage(message)
+	if err != nil {
+		log.Println("WebSocket: failed to parse message:", err)
+		conn.Close()
+		return
+	}
+
+	authMsg, ok := msg.(ws.AgentAuthMessage)
+	if !ok {
+		conn.Close() // Expected auth message
+		return
+	}
+
+	if authMsg.UUID == "" {
+		conn.Close()
+		return
+	}
+
+	// 2. Register/Update Server in DB
+	server := models.Server{
+		UUID:         authMsg.UUID,
+		Hostname:     authMsg.Info.Hostname,
+		CPUModel:     authMsg.Info.CPUModel,
+		CPUCores:     authMsg.Info.CPUCores,
+		MemoryTotal:  authMsg.Info.MemoryTotal,
+		Platform:     authMsg.Info.Platform,
+		Kernel:       authMsg.Info.Kernel,
+		Architecture: authMsg.Info.Architecture,
+	}
+
+	if err := server.Upsert(h.db); err != nil {
+		log.Println("failed to upsert server:", err)
+		conn.Close()
+		return
+	}
+	log.Printf("WebSocket: server %s upserted, approved=%v", authMsg.UUID, server.Approved)
+
+	// 3. Register to Hub
+	agentConn := &ws.AgentConnection{
+		UUID:    authMsg.UUID,
+		Conn:    conn,
+		SendCh:  make(chan []byte, 256),
+		CloseCh: make(chan struct{}),
+	}
+
+	h.hub.Register <- agentConn
+	log.Printf("WebSocket: agent %s registered to hub", authMsg.UUID)
+
+	// 5. Send auth response with approval status
+	authResp := ws.AuthResponseMessage{
+		Type:     ws.MsgTypeAuthResponse,
+		Approved: server.Approved,
+	}
+	respBytes, err := json.Marshal(authResp)
+	if err != nil {
+		log.Printf("WebSocket: failed to marshal auth response: %v", err)
+	} else {
+		select {
+		case agentConn.SendCh <- respBytes:
+			log.Printf("WebSocket: sent auth response approved=%v to %s", server.Approved, authMsg.UUID)
+		default:
+			log.Printf("WebSocket: failed to send auth response - channel full")
+		}
+	}
+
+	// 6. Start Loops
+	go h.writePump(agentConn)
+	h.readPump(agentConn, server.Approved)
+}
+
+func (h *WebSocketHandler) readPump(agent *ws.AgentConnection, approved bool) {
+	defer func() {
+		h.hub.Unregister <- agent
+		agent.Conn.Close()
+	}()
+
+	agent.Conn.SetReadLimit(512 * 1024) // 512KB
+	agent.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	agent.Conn.SetPongHandler(func(string) error {
+		agent.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	for {
+		_, message, err := agent.Conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		log.Printf("WebSocket: received raw message: %s", string(message))
+
+		msg, err := ws.ParseMessage(message)
+		if err != nil {
+			continue
+		}
+
+		switch m := msg.(type) {
+		case ws.AgentMetricsMessage:
+			log.Printf("WebSocket: received metrics from %s with %d containers", agent.UUID, len(m.Containers))
+			if approved {
+				if m.Host != nil {
+					ts := m.Timestamp
+					if m.Host.Timestamp > 0 {
+						ts = m.Host.Timestamp
+					}
+					h.bufferManager.AddHostMetric(agent.UUID, buffer.HostMetricPoint{
+						Timestamp:            ts,
+						CPU:                  m.Host.CPU,
+						MemUsed:              m.Host.MemUsed,
+						MemPercent:           m.Host.MemPercent,
+						DiskReadBytesPerSec:  m.Host.DiskReadBytesPerSec,
+						DiskWriteBytesPerSec: m.Host.DiskWriteBytesPerSec,
+						NetRxBytesPerSec:     m.Host.NetRxBytesPerSec,
+						NetTxBytesPerSec:     m.Host.NetTxBytesPerSec,
+					})
+				} else if m.System != nil {
+					// Backward compatibility for older agents sending "system" only.
+					h.bufferManager.AddHostMetric(agent.UUID, buffer.HostMetricPoint{
+						Timestamp:  m.Timestamp,
+						CPU:        m.System.CPU.Percent,
+						MemUsed:    m.System.Memory.Used,
+						MemPercent: m.System.Memory.Percent,
+					})
+				}
+
+				// Process metrics
+				for _, c := range m.Containers {
+					// Upsert container info
+					cont := models.Container{
+						AgentUUID:   agent.UUID,
+						ContainerID: c.ContainerID,
+						Name:        c.Name,
+						Image:       c.Image,
+						Project:     c.Project,
+						Service:     c.Service,
+					}
+					cont.Upsert(h.db)
+
+					point := buffer.MetricPoint{
+						Timestamp:   m.Timestamp,
+						CPU:         c.CPU,
+						MemUsed:     c.MemUsed,
+						MemPercent:  c.MemPercent,
+						DiskUsed:    c.DiskUsed,
+						DiskPercent: c.DiskPercent,
+						NetRx:       c.NetRx,
+						NetTx:       c.NetTx,
+					}
+					h.bufferManager.AddMetric(agent.UUID, c.ContainerID, point)
+				}
+
+				var s models.Server
+				s.UpdateLastSeen(h.db, agent.UUID)
+			} else {
+				var s models.Server
+				s.UpdateLastSeen(h.db, agent.UUID)
+			}
+		case ws.CommandResponse:
+			if ch, ok := h.hub.PendingCommands.Load(m.CommandID); ok {
+				respCh := ch.(chan []byte)
+				respCh <- m.Payload
+			}
+		}
+	}
+}
+
+func (h *WebSocketHandler) writePump(agent *ws.AgentConnection) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer func() {
+		ticker.Stop()
+		agent.Conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-agent.SendCh:
+			agent.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				agent.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			w, err := agent.Conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return
+			}
+			w.Write(message)
+
+			n := len(agent.SendCh)
+			for i := 0; i < n; i++ {
+				w.Write(<-agent.SendCh)
+			}
+
+			if err := w.Close(); err != nil {
+				return
+			}
+
+		case <-ticker.C:
+			agent.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := agent.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+
+		case <-agent.CloseCh:
+			return
+		}
+	}
+}

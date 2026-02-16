@@ -33,11 +33,20 @@ type ContainerMetrics struct {
 }
 
 type RealtimeContainerInfo struct {
-	ID     string          `json:"id"`
-	Name   string          `json:"name"`
-	Status string          `json:"status"`
-	State  string          `json:"state"`
-	Stats  *ContainerStats `json:"stats,omitempty"`
+	ContainerID string  `json:"container_id"`
+	Name        string  `json:"name"`
+	Image       string  `json:"image"`
+	Project     string  `json:"project"`
+	Service     string  `json:"service"`
+	State       string  `json:"state"`
+	Timestamp   int64   `json:"timestamp"`
+	CPU         float64 `json:"cpu_percent"`
+	MemUsed     uint64  `json:"mem_used"`
+	MemPercent  float64 `json:"mem_percent"`
+	DiskUsed    uint64  `json:"disk_used"`
+	DiskPercent float64 `json:"disk_percent"`
+	NetRx       uint64  `json:"net_rx_bytes"`
+	NetTx       uint64  `json:"net_tx_bytes"`
 }
 
 type RealtimeContainerMetrics struct {
@@ -212,17 +221,49 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*
 		}
 
 		info := RealtimeContainerInfo{
-			ID:     c.ID[:12],
-			Name:   name,
-			Status: c.Status,
-			State:  string(c.State),
+			ContainerID: c.ID[:12],
+			Name:        name,
+			State:       string(c.State),
+			Image:       c.Image,
+			Timestamp:   time.Now().Unix(),
 		}
 
 		statsResp, err := cli.ContainerStats(ctx, c.ID, client.ContainerStatsOptions{Stream: false})
 		if err == nil {
 			var stats container.StatsResponse
 			if err := json.NewDecoder(statsResp.Body).Decode(&stats); err == nil {
-				info.Stats = parseContainerStats(&stats)
+				cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
+				systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
+				onlineCPUs := float64(stats.CPUStats.OnlineCPUs)
+				if onlineCPUs == 0 {
+					onlineCPUs = float64(len(stats.CPUStats.CPUUsage.PercpuUsage))
+				}
+				if systemDelta > 0 && cpuDelta > 0 {
+					info.CPU = (cpuDelta / systemDelta) * onlineCPUs * 100.0
+				}
+
+				info.MemUsed = stats.MemoryStats.Usage
+				memLimit := stats.MemoryStats.Limit
+				if memLimit > 0 {
+					info.MemPercent = float64(info.MemUsed) / float64(memLimit) * 100.0
+				}
+
+				if len(stats.BlkioStats.IoServiceBytesRecursive) > 0 {
+					for _, bio := range stats.BlkioStats.IoServiceBytesRecursive {
+						if bio.Op == "read" || bio.Op == "Read" {
+							info.DiskUsed += bio.Value
+						} else if bio.Op == "write" || bio.Op == "Write" {
+							info.DiskUsed += bio.Value
+						}
+					}
+				}
+
+				if stats.Networks != nil {
+					for _, net := range stats.Networks {
+						info.NetRx += net.RxBytes
+						info.NetTx += net.TxBytes
+					}
+				}
 			}
 			_ = statsResp.Body.Close()
 		}

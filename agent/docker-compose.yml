@@ -3,8 +3,9 @@ services:
     build: .
     image: monitoring-agent:latest
     container_name: monitoring-agent
+    network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./dane:/app/data/
     environment:
-      - BACKEND_URL=ws://192.168.0.10:8080
+      - BACKEND_URL=ws://192.168.0.10:8080/ws/agent
