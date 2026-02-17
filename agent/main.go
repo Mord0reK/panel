@@ -150,7 +150,7 @@ func runWebSocket() {
 	}
 	log.Printf("WebSocket connected to %s", backendURL)
 
-	err = wsClient.SendAuth(agentUUID, websocket.AuthInfo{
+	authInfo := websocket.AuthInfo{
 		Hostname:     sysInfo.Hostname,
 		CPUModel:     sysInfo.CPU.ModelName,
 		CPUCores:     sysInfo.CPU.LogicalCores,
@@ -158,7 +158,9 @@ func runWebSocket() {
 		Platform:     sysInfo.Platform,
 		Kernel:       sysInfo.Kernel,
 		Architecture: sysInfo.Architecture,
-	})
+	}
+
+	err = wsClient.SendAuth(agentUUID, authInfo)
 	if err != nil {
 		log.Printf("Failed to send auth: %v", err)
 		wsClient.Close()
@@ -175,27 +177,13 @@ func runWebSocket() {
 
 	if !approved {
 		log.Printf("Server not approved. Waiting for approval from backend...")
-		for {
-			select {
-			case <-ctx.Done():
-				wsClient.Close()
-				return
-			case <-time.After(10 * time.Second):
-				approved, err := wsClient.CheckApproval(ctx)
-				if err != nil {
-					log.Printf("Failed to check approval: %v", err)
-					continue
-				}
-				if approved {
-					log.Printf("Server approved! Starting metrics...")
-					break
-				}
-				log.Printf("Still waiting for approval...")
-			}
-			if approved {
-				break
-			}
+		approved, err = wsClient.WaitForApproval(ctx)
+		if err != nil {
+			log.Printf("Failed while waiting for approval: %v", err)
+			wsClient.Close()
+			os.Exit(1)
 		}
+		log.Printf("Server approved! Starting metrics...")
 	} else {
 		log.Printf("Server approved! Starting metrics...")
 	}
@@ -228,7 +216,30 @@ func runWebSocket() {
 		case <-time.After(10 * time.Second):
 			if err := wsClient.Reconnect(ctx); err != nil {
 				log.Printf("Reconnect failed: %v", err)
+				continue
 			}
+
+			if err := wsClient.SendAuth(agentUUID, authInfo); err != nil {
+				log.Printf("Failed to re-send auth after reconnect: %v", err)
+				continue
+			}
+			log.Printf("Auth re-sent after reconnect, waiting for response...")
+
+			reApproved, err := wsClient.WaitForAuthResponse(ctx)
+			if err != nil {
+				log.Printf("Failed to get auth response after reconnect: %v", err)
+				continue
+			}
+
+			if !reApproved {
+				log.Printf("Server not approved after reconnect. Waiting for approval...")
+				reApproved, err = wsClient.WaitForApproval(ctx)
+				if err != nil {
+					log.Printf("Failed while waiting for approval after reconnect: %v", err)
+					continue
+				}
+			}
+			log.Printf("Re-authenticated successfully, resuming metrics...")
 		}
 	}
 }

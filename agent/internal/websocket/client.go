@@ -179,8 +179,35 @@ func (c *Client) WaitForAuthResponse(ctx context.Context) (bool, error) {
 	}
 }
 
-func (c *Client) CheckApproval(ctx context.Context) (bool, error) {
-	return c.WaitForAuthResponse(ctx)
+func (c *Client) WaitForApproval(ctx context.Context) (bool, error) {
+	conn := c.conn
+	if conn == nil {
+		return false, fmt.Errorf("not connected")
+	}
+
+	conn.SetReadDeadline(time.Time{})
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		default:
+		}
+
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			return false, fmt.Errorf("failed to read approval message: %w", err)
+		}
+
+		var resp AuthResponseMessage
+		if err := json.Unmarshal(message, &resp); err != nil {
+			continue
+		}
+
+		if resp.Type == "auth_response" && resp.Approved {
+			return true, nil
+		}
+	}
 }
 
 func (c *Client) Listen(ctx context.Context, handler func(Command) error) error {
@@ -249,6 +276,18 @@ func (c *Client) Listen(ctx context.Context, handler func(Command) error) error 
 			c.closeMu.Unlock()
 
 			return fmt.Errorf("connection lost: %w", err)
+		}
+
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(message, &envelope); err != nil {
+			log.Printf("Failed to unmarshal message envelope: %v", err)
+			continue
+		}
+
+		if envelope.Type != "command" {
+			continue
 		}
 
 		var cmd Command

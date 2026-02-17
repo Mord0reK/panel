@@ -49,9 +49,9 @@ func main() {
 	// 5. Setup Handlers
 	authHandler := api.NewAuthHandler(db, cfg)
 	wsHandler := api.NewWebSocketHandler(agentHub, db, bufferManager)
-	serversHandler := api.NewServersHandler(db)
+	serversHandler := api.NewServersHandler(db, agentHub)
 	commandsHandler := api.NewCommandsHandler(agentHub)
-	metricsHandler := api.NewMetricsHandler(db)
+	metricsHandler := api.NewMetricsHandler(db, bufferManager)
 	sseHandler := api.NewSSEHandler(db, bufferManager)
 
 	// 6. Router
@@ -118,12 +118,14 @@ func main() {
 		Handler: r,
 	}
 
+	slog.Info("Server starting", "port", cfg.Port)
 	go func() {
-		slog.Info("Server starting", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
+
+	slog.Info("Server started", "port", cfg.Port)
 
 	// 9. Graceful Shutdown
 	quit := make(chan os.Signal, 1)

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"backend/internal/database"
+	"backend/internal/models"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,12 +32,9 @@ func TestDatabaseInitAndMigrations(t *testing.T) {
 	// Check if tables exist
 	tables := []string{
 		"users", "servers", "containers", "container_events",
-		"metrics_1s", "metrics_5s", "metrics_15s", "metrics_30s",
+		"metrics_5s", "metrics_15s", "metrics_30s",
 		"metrics_1m", "metrics_5m", "metrics_15m", "metrics_30m",
 		"metrics_1h", "metrics_6h", "metrics_12h",
-		"host_metrics_1s", "host_metrics_5s", "host_metrics_15s", "host_metrics_30s",
-		"host_metrics_1m", "host_metrics_5m", "host_metrics_15m", "host_metrics_30m",
-		"host_metrics_1h", "host_metrics_6h", "host_metrics_12h",
 	}
 
 	for _, table := range tables {
@@ -79,14 +77,24 @@ func TestDatabaseInsertAndRead(t *testing.T) {
 	assert.Equal(t, "nginx", containerName)
 
 	// Test Metrics
-	_, err = db.Exec(`INSERT INTO metrics_1s 
-		(agent_uuid, container_id, timestamp, cpu_percent, mem_used, mem_percent, disk_used, disk_percent, net_rx_bytes, net_tx_bytes) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"server1", "cont1", 1234567890, 10.5, 1024, 50.0, 2048, 10.0, 100, 200)
+	_, err = db.Exec(`INSERT INTO metrics_5s
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"server1", "cont1", 1234567890, 10.5, 10.5, 10.5, 1024.0, 1024.0, 1024.0, 2048.0, 100.0, 100.0, 100.0, 200.0, 200.0, 200.0)
 	assert.NoError(t, err)
 
 	var cpuPercent float64
-	err = db.QueryRow("SELECT cpu_percent FROM metrics_1s WHERE timestamp=?", 1234567890).Scan(&cpuPercent)
+	err = db.QueryRow("SELECT cpu_avg FROM metrics_5s WHERE timestamp=?", 1234567890).Scan(&cpuPercent)
 	assert.NoError(t, err)
 	assert.Equal(t, 10.5, cpuPercent)
+
+	_, err = db.Exec(`INSERT INTO metrics_5s
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"server1", models.HostMainContainerID, 1234567890, 30.0, 30.0, 30.0, 2048.0, 2048.0, 2048.0, 100.0, 1000.0, 1000.0, 1000.0, 800.0, 800.0, 800.0)
+	assert.NoError(t, err)
+
+	err = db.QueryRow("SELECT cpu_avg FROM metrics_5s WHERE container_id=? AND timestamp=?", models.HostMainContainerID, 1234567890).Scan(&cpuPercent)
+	assert.NoError(t, err)
+	assert.Equal(t, 30.0, cpuPercent)
 }

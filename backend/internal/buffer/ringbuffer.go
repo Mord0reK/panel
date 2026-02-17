@@ -30,15 +30,23 @@ func NewRingBuffer(size int) *RingBuffer {
 	}
 }
 
-func (rb *RingBuffer) Add(point MetricPoint) {
+func (rb *RingBuffer) Add(point MetricPoint) *MetricPoint {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
+
+	var evicted *MetricPoint
+	if rb.Count == rb.Size {
+		oldest := rb.Data[rb.WritePos]
+		evicted = &oldest
+	}
 
 	rb.Data[rb.WritePos] = point
 	rb.WritePos = (rb.WritePos + 1) % rb.Size
 	if rb.Count < rb.Size {
 		rb.Count++
 	}
+
+	return evicted
 }
 
 // GetAll returns a copy of all valid points in the buffer
@@ -47,7 +55,7 @@ func (rb *RingBuffer) GetAll() []MetricPoint {
 	defer rb.mu.Unlock()
 
 	result := make([]MetricPoint, 0, rb.Count)
-	
+
 	if rb.Count < rb.Size {
 		// Buffer not full, points are from 0 to Count-1
 		for i := 0; i < rb.Count; i++ {
@@ -136,7 +144,7 @@ func (rb *RingBuffer) GetPointsSince(ts int64) []MetricPoint {
 	// Since it's a ring buffer, order is tricky.
 	// But `GetAll()` returns sorted by time (if added in order).
 	// Let's reuse `GetAll` logic inside.
-	
+
 	all := rb.getAllUnsafe()
 	var newPoints []MetricPoint
 	for _, p := range all {

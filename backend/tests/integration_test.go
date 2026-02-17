@@ -31,9 +31,9 @@ func TestFullIntegration(t *testing.T) {
 
 	authHandler := api.NewAuthHandler(db, cfg)
 	wsHandler := api.NewWebSocketHandler(hub, db, bm)
-	serversHandler := api.NewServersHandler(db)
+	serversHandler := api.NewServersHandler(db, hub)
 	commandsHandler := api.NewCommandsHandler(hub)
-	metricsHandler := api.NewMetricsHandler(db)
+	metricsHandler := api.NewMetricsHandler(db, bm)
 
 	r := mux.NewRouter()
 	r.HandleFunc("/api/setup", authHandler.HandleSetup).Methods("POST")
@@ -68,6 +68,17 @@ func TestFullIntegration(t *testing.T) {
 	}
 	data, _ := json.Marshal(authMsg)
 	wsConn.WriteMessage(websocket.TextMessage, data)
+
+	// Initial auth response should be approved=false
+	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, msg, err := wsConn.ReadMessage()
+	require.NoError(t, err)
+	var authResp ws.AuthResponseMessage
+	err = json.Unmarshal(msg, &authResp)
+	require.NoError(t, err)
+	assert.False(t, authResp.Approved)
+	wsConn.SetReadDeadline(time.Time{})
+
 	time.Sleep(100 * time.Millisecond)
 
 	// 3. Approve Server
@@ -76,10 +87,14 @@ func TestFullIntegration(t *testing.T) {
 	resp, _ = http.DefaultClient.Do(req)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// 4. Send Metrics (requires reconnect because of my implementation)
-	wsConn.Close()
-	wsConn, _, _ = websocket.DefaultDialer.Dial(wsURL, nil)
-	wsConn.WriteMessage(websocket.TextMessage, data)
+	// 4. Wait for pushed approval and send metrics on the same connection
+	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, msg, err = wsConn.ReadMessage()
+	require.NoError(t, err)
+	err = json.Unmarshal(msg, &authResp)
+	require.NoError(t, err)
+	assert.True(t, authResp.Approved)
+	wsConn.SetReadDeadline(time.Time{})
 	time.Sleep(50 * time.Millisecond)
 
 	metricsMsg := ws.AgentMetricsMessage{
@@ -137,13 +152,13 @@ func TestFullIntegration(t *testing.T) {
 	resp, _ = http.DefaultClient.Do(req)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var histResp struct {
-		Points     []interface{} `json:"points"`
-		HostPoints []interface{} `json:"host_points"`
+		Host struct {
+			Points []interface{} `json:"points"`
+		} `json:"host"`
 		Containers []interface{} `json:"containers"`
 	}
 	json.NewDecoder(resp.Body).Decode(&histResp)
-	assert.NotEmpty(t, histResp.Points)
-	assert.NotEmpty(t, histResp.HostPoints)
+	assert.NotEmpty(t, histResp.Host.Points)
 	assert.NotEmpty(t, histResp.Containers)
 
 	// 8. Command
@@ -159,7 +174,7 @@ func TestFullIntegration(t *testing.T) {
 	}()
 
 	// Agent receive cmd
-	_, msg, _ := wsConn.ReadMessage()
+	_, msg, _ = wsConn.ReadMessage()
 	var cmd ws.CommandMessage
 	json.Unmarshal(msg, &cmd)
 	respMsg := ws.CommandResponse{

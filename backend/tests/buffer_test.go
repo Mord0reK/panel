@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"backend/internal/buffer"
+	"backend/internal/models"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,15 +59,7 @@ func TestBulkInserter(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	// Need to manually insert server and container to satisfy FOREIGN KEYS if any
-	// Actually schema has FOREIGN KEYS. So we must insert server.
-	// But `metrics_1s` references `servers(uuid)` and `containers(agent_uuid, container_id)`?
-	// Schema check:
-	// FOREIGN KEY(agent_uuid) REFERENCES servers(uuid) ON DELETE CASCADE
-	// Does it reference containers?
-	// Schema says: `CREATE TABLE metrics_1s (..., PRIMARY KEY(agent_uuid, container_id, timestamp), FOREIGN KEY(agent_uuid) REFERENCES servers(uuid) ...)`
-	// It does NOT enforce container existence in `containers` table, only server existence.
-	// Good.
+	// Need server row to satisfy FOREIGN KEY(agent_uuid) for metrics tables.
 
 	_, err := db.Exec("INSERT INTO servers (uuid, approved) VALUES (?, ?)", "agent-bulk", true)
 	require.NoError(t, err)
@@ -75,8 +68,7 @@ func TestBulkInserter(t *testing.T) {
 	inserter := buffer.StartBulkInserter(db, bm)
 	defer inserter.Stop()
 
-	// Add 12 metrics (threshold is 10)
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 65; i++ {
 		ts := int64(1000 + i)
 		bm.AddMetric("agent-bulk", "c-bulk", buffer.MetricPoint{
 			Timestamp: ts,
@@ -88,13 +80,12 @@ func TestBulkInserter(t *testing.T) {
 		})
 		bm.AddHostMetric("agent-bulk", buffer.HostMetricPoint{
 			Timestamp:            ts,
-			CPU:                  30.0,
-			MemUsed:              2048,
-			MemPercent:           15.0,
-			DiskReadBytesPerSec:  100,
-			DiskWriteBytesPerSec: 200,
-			NetRxBytesPerSec:     300,
-			NetTxBytesPerSec:     400,
+			CPU:                  40.0,
+			MemUsed:              8192,
+			DiskReadBytesPerSec:  1000,
+			DiskWriteBytesPerSec: 600,
+			NetRxBytesPerSec:     2000,
+			NetTxBytesPerSec:     1500,
 		})
 	}
 
@@ -103,11 +94,19 @@ func TestBulkInserter(t *testing.T) {
 
 	// Verify DB
 	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM metrics_1s").Scan(&count)
+	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s").Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 12, count)
+	assert.Equal(t, 3, count)
+	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s WHERE container_id=?", models.HostMainContainerID).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s WHERE container_id=?", models.HostDiskWriteContainerID).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
 
-	err = db.QueryRow("SELECT COUNT(*) FROM host_metrics_1s").Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 12, count)
+	rb := bm.GetOrCreate("agent-bulk", "c-bulk")
+	points := rb.GetAll()
+	assert.Len(t, points, 60)
+	assert.Equal(t, int64(1005), points[0].Timestamp)
+	assert.Equal(t, int64(1064), points[len(points)-1].Timestamp)
 }

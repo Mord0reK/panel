@@ -8,6 +8,7 @@ import (
 
 	"backend/internal/api"
 	"backend/internal/models"
+	ws "backend/internal/websocket"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +19,9 @@ func TestServersAPI(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	handler := api.NewServersHandler(db)
+	hub := ws.NewHub()
+	go hub.Run()
+	handler := api.NewServersHandler(db, hub)
 	r := mux.NewRouter()
 	r.HandleFunc("/api/servers", handler.HandleList).Methods("GET")
 	r.HandleFunc("/api/servers/{uuid}", handler.HandleGet).Methods("GET")
@@ -59,7 +62,7 @@ func TestServersAPI(t *testing.T) {
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	
+
 	var approved bool
 	db.QueryRow("SELECT approved FROM servers WHERE uuid='s1'").Scan(&approved)
 	assert.True(t, approved)

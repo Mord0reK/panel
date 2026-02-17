@@ -32,11 +32,15 @@ func TestCommandsAPI(t *testing.T) {
 
 	u := "ws" + strings.TrimPrefix(s.URL, "http")
 	wsConn, _, _ := websocket.DefaultDialer.Dial(u, nil)
-	
+
 	// Auth
 	authMsg := ws.AgentAuthMessage{Type: ws.MsgTypeAuth, UUID: "agent-cmd"}
 	data, _ := json.Marshal(authMsg)
 	wsConn.WriteMessage(websocket.TextMessage, data)
+	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, _, err := wsConn.ReadMessage()
+	require.NoError(t, err)
+	wsConn.SetReadDeadline(time.Time{})
 	time.Sleep(50 * time.Millisecond)
 
 	// 2. Command API Setup

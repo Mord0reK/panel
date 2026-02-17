@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"backend/internal/buffer"
 	"backend/internal/models"
 
 	"github.com/gorilla/mux"
 )
 
 type MetricsHandler struct {
-	db *sql.DB
+	db            *sql.DB
+	bufferManager *buffer.BufferManager
 }
 
 type rawMetricPoint struct {
@@ -24,15 +26,18 @@ type rawMetricPoint struct {
 }
 
 type rawHostMetricPoint struct {
-	Timestamp int64   `json:"timestamp"`
-	CPU       float64 `json:"cpu"`
+	Timestamp            int64   `json:"timestamp"`
+	CPU                  float64 `json:"cpu"`
+	MemUsed              uint64  `json:"mem_used"`
+	MemPercent           float64 `json:"mem_percent"`
+	DiskReadBytesPerSec  uint64  `json:"disk_read_bytes_per_sec"`
+	DiskWriteBytesPerSec uint64  `json:"disk_write_bytes_per_sec"`
+	NetRxBytesPerSec     uint64  `json:"net_rx_bytes_per_sec"`
+	NetTxBytesPerSec     uint64  `json:"net_tx_bytes_per_sec"`
+}
 
-	MemUsed uint64 `json:"mem_used"`
-
-	DiskReadBytesPerSec  uint64 `json:"disk_read_bytes_per_sec"`
-	DiskWriteBytesPerSec uint64 `json:"disk_write_bytes_per_sec"`
-	NetRxBytesPerSec     uint64 `json:"net_rx_bytes_per_sec"`
-	NetTxBytesPerSec     uint64 `json:"net_tx_bytes_per_sec"`
+type serverHostHistory struct {
+	Points interface{} `json:"points"`
 }
 
 type serverContainerHistory struct {
@@ -44,36 +49,37 @@ type serverContainerHistory struct {
 	Points      interface{} `json:"points"`
 }
 
-func NewMetricsHandler(db *sql.DB) *MetricsHandler {
-	return &MetricsHandler{db: db}
+func NewMetricsHandler(db *sql.DB, bufferManager *buffer.BufferManager) *MetricsHandler {
+	return &MetricsHandler{db: db, bufferManager: bufferManager}
 }
 
-func toRawPoints(points []models.HistoricalMetricPoint) []rawMetricPoint {
+func toRawBufferPoints(points []buffer.MetricPoint) []rawMetricPoint {
 	rawPoints := make([]rawMetricPoint, len(points))
 	for i, p := range points {
 		rawPoints[i] = rawMetricPoint{
 			Timestamp:  p.Timestamp,
-			CPU:        p.CPUAvg,
-			MemUsed:    uint64(p.MemAvg),
-			DiskUsed:   uint64(p.DiskAvg),
-			NetRxBytes: uint64(p.NetRxAvg),
-			NetTxBytes: uint64(p.NetTxAvg),
+			CPU:        p.CPU,
+			MemUsed:    p.MemUsed,
+			DiskUsed:   p.DiskUsed,
+			NetRxBytes: p.NetRx,
+			NetTxBytes: p.NetTx,
 		}
 	}
 	return rawPoints
 }
 
-func toRawHostPoints(points []models.HostHistoricalMetricPoint) []rawHostMetricPoint {
+func toRawHostBufferPoints(points []buffer.HostMetricPoint) []rawHostMetricPoint {
 	rawPoints := make([]rawHostMetricPoint, len(points))
 	for i, p := range points {
 		rawPoints[i] = rawHostMetricPoint{
 			Timestamp:            p.Timestamp,
-			CPU:                  p.CPUAvg,
-			MemUsed:              uint64(p.MemAvg),
-			DiskReadBytesPerSec:  uint64(p.DiskReadAvg),
-			DiskWriteBytesPerSec: uint64(p.DiskWriteAvg),
-			NetRxBytesPerSec:     uint64(p.NetRxAvg),
-			NetTxBytesPerSec:     uint64(p.NetTxAvg),
+			CPU:                  p.CPU,
+			MemUsed:              p.MemUsed,
+			MemPercent:           p.MemPercent,
+			DiskReadBytesPerSec:  p.DiskReadBytesPerSec,
+			DiskWriteBytesPerSec: p.DiskWriteBytesPerSec,
+			NetRxBytesPerSec:     p.NetRxBytesPerSec,
+			NetTxBytesPerSec:     p.NetTxBytesPerSec,
 		}
 	}
 	return rawPoints
@@ -93,15 +99,16 @@ func (h *MetricsHandler) HandleContainerHistory(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	points, err := models.GetHistoricalMetrics(h.db, uuid, containerID, rangeKey)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if rangeKey == "1m" {
+		points := h.bufferManager.GetContainerPoints(uuid, containerID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"points": toRawBufferPoints(points)})
 		return
 	}
 
-	if rangeKey == "1m" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"points": toRawPoints(points)})
+	points, err := models.GetHistoricalMetrics(h.db, uuid, containerID, rangeKey)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -122,10 +129,16 @@ func (h *MetricsHandler) HandleServerHistory(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	hostPoints, err := models.GetHostHistoricalMetrics(h.db, uuid, rangeKey)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	var hostPayload interface{}
+	if rangeKey == "1m" {
+		hostPayload = toRawHostBufferPoints(h.bufferManager.GetHostPoints(uuid))
+	} else {
+		hostPoints, err := models.GetHistoricalHostMetrics(h.db, uuid, rangeKey)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		hostPayload = hostPoints
 	}
 
 	var containerModel models.Container
@@ -137,15 +150,18 @@ func (h *MetricsHandler) HandleServerHistory(w http.ResponseWriter, r *http.Requ
 
 	var containersResp []serverContainerHistory
 	for _, c := range containers {
-		points, err := models.GetHistoricalMetrics(h.db, uuid, c.ContainerID, rangeKey)
-		if err != nil || len(points) == 0 {
-			continue
-		}
-
 		var payload interface{}
 		if rangeKey == "1m" {
-			payload = toRawPoints(points)
+			points := h.bufferManager.GetContainerPoints(uuid, c.ContainerID)
+			if len(points) == 0 {
+				continue
+			}
+			payload = toRawBufferPoints(points)
 		} else {
+			points, err := models.GetHistoricalMetrics(h.db, uuid, c.ContainerID, rangeKey)
+			if err != nil || len(points) == 0 {
+				continue
+			}
 			payload = points
 		}
 
@@ -159,18 +175,10 @@ func (h *MetricsHandler) HandleServerHistory(w http.ResponseWriter, r *http.Requ
 		})
 	}
 
-	var hostPayload interface{}
-	if rangeKey == "1m" {
-		hostPayload = toRawHostPoints(hostPoints)
-	} else {
-		hostPayload = hostPoints
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"points":      hostPayload, // compatibility alias
-		"host_points": hostPayload,
-		"containers":  containersResp,
+		"host":       serverHostHistory{Points: hostPayload},
+		"containers": containersResp,
 	})
 }
 

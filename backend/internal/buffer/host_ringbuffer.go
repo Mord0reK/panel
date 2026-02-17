@@ -30,15 +30,23 @@ func NewHostRingBuffer(size int) *HostRingBuffer {
 	}
 }
 
-func (rb *HostRingBuffer) Add(point HostMetricPoint) {
+func (rb *HostRingBuffer) Add(point HostMetricPoint) *HostMetricPoint {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
+
+	var evicted *HostMetricPoint
+	if rb.Count == rb.Size {
+		oldest := rb.Data[rb.WritePos]
+		evicted = &oldest
+	}
 
 	rb.Data[rb.WritePos] = point
 	rb.WritePos = (rb.WritePos + 1) % rb.Size
 	if rb.Count < rb.Size {
 		rb.Count++
 	}
+
+	return evicted
 }
 
 func (rb *HostRingBuffer) GetAll() []HostMetricPoint {

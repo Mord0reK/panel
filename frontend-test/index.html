@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API Panel Tester</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
@@ -121,6 +122,16 @@
                         <option value="30d">30 dni</option>
                     </select>
                     <button onclick="getServerMetrics()" class="btn-primary">Pobierz metryki</button>
+                    <div class="chart-row">
+                        <div class="chart-item">
+                            <span class="chart-label">CPU Usage</span>
+                            <canvas id="serverCpuChart"></canvas>
+                        </div>
+                        <div class="chart-item">
+                            <span class="chart-label">Memory Usage</span>
+                            <canvas id="serverMemoryChart"></canvas>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="endpoint">
@@ -142,6 +153,16 @@
                         <option value="30d">30 dni</option>
                     </select>
                     <button onclick="getContainerMetrics()" class="btn-primary">Pobierz metryki</button>
+                    <div class="chart-row">
+                        <div class="chart-item">
+                            <span class="chart-label">CPU Usage</span>
+                            <canvas id="containerCpuChart"></canvas>
+                        </div>
+                        <div class="chart-item">
+                            <span class="chart-label">Memory Usage</span>
+                            <canvas id="containerMemoryChart"></canvas>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -163,6 +184,16 @@
                     <input type="text" id="liveServerUuid" placeholder="Server UUID">
                     <button onclick="startLiveServer()" class="btn-primary">Start</button>
                     <button onclick="stopLiveServer()" class="btn-danger">Stop</button>
+                    <div class="chart-row">
+                        <div class="chart-item">
+                            <span class="chart-label">Live CPU Usage (%)</span>
+                            <canvas id="liveServerCpuChart"></canvas>
+                        </div>
+                        <div class="chart-item">
+                            <span class="chart-label">Live Memory Usage (GB)</span>
+                            <canvas id="liveServerMemoryChart"></canvas>
+                        </div>
+                    </div>
                     <div id="liveServerStatus" class="sse-status"></div>
                 </div>
             </section>

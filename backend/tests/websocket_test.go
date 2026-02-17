@@ -52,6 +52,12 @@ func TestWebSocketAgentConnect(t *testing.T) {
 	err = wsConn.WriteMessage(websocket.TextMessage, data)
 	require.NoError(t, err)
 
+	// Receive initial auth response
+	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, _, err = wsConn.ReadMessage()
+	require.NoError(t, err)
+	wsConn.SetReadDeadline(time.Time{})
+
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
 
@@ -120,6 +126,17 @@ func TestWebSocketMetrics(t *testing.T) {
 	}
 	data, _ := json.Marshal(authMsg)
 	wsConn.WriteMessage(websocket.TextMessage, data)
+
+	// Read initial auth response (approved=false)
+	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, msg, err := wsConn.ReadMessage()
+	require.NoError(t, err)
+	var authResp ws.AuthResponseMessage
+	err = json.Unmarshal(msg, &authResp)
+	require.NoError(t, err)
+	assert.False(t, authResp.Approved)
+	wsConn.SetReadDeadline(time.Time{})
+
 	time.Sleep(50 * time.Millisecond)
 
 	// Approve server manually
@@ -127,15 +144,20 @@ func TestWebSocketMetrics(t *testing.T) {
 	err = server.Approve(db, "agent-metrics")
 	require.NoError(t, err)
 
-	wsConn.Close() // Close first connection
-
-	// Reconnect to pick up approved status
-	wsConn2, _, err := websocket.DefaultDialer.Dial(u, nil)
+	// Push approval to connected agent
+	hub.SetApproved("agent-metrics", true)
+	payload, err := json.Marshal(ws.AuthResponseMessage{Type: ws.MsgTypeAuthResponse, Approved: true})
 	require.NoError(t, err)
-	defer wsConn2.Close()
+	err = hub.SendToAgent("agent-metrics", payload)
+	require.NoError(t, err)
 
-	// Auth again
-	wsConn2.WriteMessage(websocket.TextMessage, data)
+	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, msg, err = wsConn.ReadMessage()
+	require.NoError(t, err)
+	err = json.Unmarshal(msg, &authResp)
+	require.NoError(t, err)
+	assert.True(t, authResp.Approved)
+	wsConn.SetReadDeadline(time.Time{})
 	time.Sleep(50 * time.Millisecond)
 
 	// Send Metrics
@@ -157,7 +179,7 @@ func TestWebSocketMetrics(t *testing.T) {
 		},
 	}
 	data, _ = json.Marshal(metricsMsg)
-	err = wsConn2.WriteMessage(websocket.TextMessage, data)
+	err = wsConn.WriteMessage(websocket.TextMessage, data)
 	require.NoError(t, err)
 
 	// Wait for processing

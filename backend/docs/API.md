@@ -22,9 +22,8 @@ Większość endpointów wymaga nagłówka:
 ### 4. Metryki Historyczne
 - `GET /api/metrics/history/servers/:uuid?range=1h`
   - Zwraca:
-  - `host_points`: seria metryk hosta dla zakresu
+  - `host.points`: seria hosta (`1m` z RAM, `>1m` z DB)
   - `containers`: serie per-kontener (tylko kontenery z próbkami w zakresie)
-  - `points`: alias kompatybilności wskazujący na `host_points`
 - `GET /api/metrics/history/servers/:uuid/containers/:id?range=1h`
 Dostępne zakresy: `1m, 5m, 15m, 30m, 1h, 6h, 12h, 24h, 7d, 15d, 30d`.
 

@@ -6,6 +6,20 @@ const TOKEN_KEY = 'api_token';
 let liveAllAbortController = null;
 let liveServerAbortController = null;
 
+// Chart instances
+let serverCpuChart = null;
+let serverMemoryChart = null;
+let containerCpuChart = null;
+let containerMemoryChart = null;
+let liveServerCpuChart = null;
+let liveServerMemoryChart = null;
+
+// Live metrics data buffers (max 60 points)
+const MAX_POINTS = 60;
+let liveServerCpuData = [];
+let liveServerMemoryData = [];
+let liveServerTimestamps = [];
+
 // Get token from localStorage
 function getToken() {
     return localStorage.getItem(TOKEN_KEY);
@@ -215,7 +229,11 @@ async function getServerMetrics() {
         return;
     }
 
-    await apiRequest('GET', `/api/metrics/history/servers/${uuid}?range=${range}`);
+    const result = await apiRequest('GET', `/api/metrics/history/servers/${uuid}?range=${range}`);
+
+    if (result.ok && result.data && result.data.host && result.data.host.points) {
+        renderServerMetricsCharts(result.data.host.points);
+    }
 }
 
 async function getContainerMetrics() {
@@ -228,7 +246,171 @@ async function getContainerMetrics() {
         return;
     }
 
-    await apiRequest('GET', `/api/metrics/history/servers/${uuid}/containers/${containerId}?range=${range}`);
+    const result = await apiRequest('GET', `/api/metrics/history/servers/${uuid}/containers/${containerId}?range=${range}`);
+
+    if (result.ok && result.data && result.data.points) {
+        renderContainerMetricsCharts(result.data.points);
+    }
+}
+
+function renderServerMetricsCharts(data) {
+    const timestamps = data.map(m => {
+        const date = new Date(m.timestamp * 1000);
+        return date.toLocaleTimeString();
+    });
+    const cpuValues = data.map(m => parseFloat(m.cpu_avg) || 0);
+    const memoryValues = data.map(m => parseFloat(m.mem_used_avg) / (1024 * 1024 * 1024) || 0);
+
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    color: '#a0a0a0'
+                },
+                grid: {
+                    color: '#3a4557'
+                }
+            },
+            x: {
+                ticks: {
+                    color: '#a0a0a0'
+                },
+                grid: {
+                    color: '#3a4557'
+                }
+            }
+        }
+    };
+
+    const cpuCtx = document.getElementById('serverCpuChart')?.getContext('2d');
+    if (cpuCtx) {
+        if (serverCpuChart) serverCpuChart.destroy();
+        serverCpuChart = new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                labels: timestamps,
+                datasets: [{
+                    label: 'CPU Usage (%)',
+                    data: cpuValues,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: chartOptions
+        });
+    }
+
+    const memCtx = document.getElementById('serverMemoryChart')?.getContext('2d');
+    if (memCtx) {
+        if (serverMemoryChart) serverMemoryChart.destroy();
+        serverMemoryChart = new Chart(memCtx, {
+            type: 'line',
+            data: {
+                labels: timestamps,
+                datasets: [{
+                    label: 'Memory Usage (GB)',
+                    data: memoryValues,
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: chartOptions
+        });
+    }
+}
+
+function renderContainerMetricsCharts(data) {
+    const timestamps = data.map(m => {
+        const date = new Date(m.timestamp * 1000);
+        return date.toLocaleTimeString();
+    });
+    const cpuValues = data.map(m => parseFloat(m.cpu_avg) || 0);
+    const memoryValues = data.map(m => parseFloat(m.mem_avg) / (1024 * 1024 * 1024) || 0);
+
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    color: '#a0a0a0'
+                },
+                grid: {
+                    color: '#3a4557'
+                }
+            },
+            x: {
+                ticks: {
+                    color: '#a0a0a0'
+                },
+                grid: {
+                    color: '#3a4557'
+                }
+            }
+        }
+    };
+
+    const cpuCtx = document.getElementById('containerCpuChart')?.getContext('2d');
+    if (cpuCtx) {
+        if (containerCpuChart) containerCpuChart.destroy();
+        containerCpuChart = new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                labels: timestamps,
+                datasets: [{
+                    label: 'CPU Usage (%)',
+                    data: cpuValues,
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: chartOptions
+        });
+    }
+
+    const memCtx = document.getElementById('containerMemoryChart')?.getContext('2d');
+    if (memCtx) {
+        if (containerMemoryChart) containerMemoryChart.destroy();
+        containerMemoryChart = new Chart(memCtx, {
+            type: 'line',
+            data: {
+                labels: timestamps,
+                datasets: [{
+                    label: 'Memory Usage (GB)',
+                    data: memoryValues,
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: chartOptions
+        });
+    }
 }
 
 // ===== SSE ENDPOINTS =====
@@ -338,11 +520,168 @@ async function startLiveServer() {
         return;
     }
 
-    const url = `${API_BASE}/api/metrics/live/servers/${uuid}`;
-    liveServerAbortController = await startSSEStream(url, 'liveServerStatus', liveServerAbortController);
+    const token = getToken();
+    if (!token) {
+        showResponse({ error: 'Brak tokenu autoryzacji' }, 401);
+        return;
+    }
 
-    if (liveServerAbortController) {
-        showResponse({ message: `Rozpoczęto nasłuchiwanie SSE /api/metrics/live/servers/${uuid}` }, 200);
+    const controller = new AbortController();
+
+    try {
+        const response = await fetch(`${API_BASE}/api/metrics/live/servers/${uuid}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            signal: controller.signal
+        });
+
+        if (!response.ok) {
+            showResponse({ error: `Błąd: ${response.status}` }, response.status);
+            return;
+        }
+
+        liveServerAbortController = controller;
+        showResponse({ message: `Rozpoczęto nasłuchiwanie live metrics dla serwera ${uuid}` }, 200);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const readStream = async () => {
+            while (true) {
+                try {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                updateLiveServerCharts(data.host);
+                            } catch (e) {
+                                console.error('Błąd parsowania SSE:', e);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    if (error.name !== 'AbortError') {
+                        showResponse({ error: error.message }, 0);
+                    }
+                    break;
+                }
+            }
+        };
+
+        readStream();
+    } catch (error) {
+        showResponse({ error: error.message }, 0);
+        liveServerAbortController = null;
+    }
+}
+
+function updateLiveServerCharts(hostData) {
+    const timestamp = new Date(hostData.Timestamp * 1000).toLocaleTimeString();
+    const cpu = parseFloat(hostData.CPU) || 0;
+    const memory = parseFloat(hostData.MemUsed) / (1024 * 1024 * 1024) || 0;
+
+    // Keep only last 60 points
+    liveServerTimestamps.push(timestamp);
+    liveServerCpuData.push(cpu);
+    liveServerMemoryData.push(memory);
+
+    if (liveServerTimestamps.length > MAX_POINTS) {
+        liveServerTimestamps.shift();
+        liveServerCpuData.shift();
+        liveServerMemoryData.shift();
+    }
+
+    // Update CPU chart
+    const cpuCtx = document.getElementById('liveServerCpuChart')?.getContext('2d');
+    if (cpuCtx) {
+        if (liveServerCpuChart) liveServerCpuChart.destroy();
+        liveServerCpuChart = new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                labels: liveServerTimestamps,
+                datasets: [{
+                    label: 'CPU Usage (%)',
+                    data: liveServerCpuData,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 2,
+                    pointBackgroundColor: '#3b82f6'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#a0a0a0' },
+                        grid: { color: '#3a4557' }
+                    },
+                    x: {
+                        ticks: { color: '#a0a0a0' },
+                        grid: { color: '#3a4557' }
+                    }
+                }
+            }
+        });
+    }
+
+    // Update Memory chart
+    const memCtx = document.getElementById('liveServerMemoryChart')?.getContext('2d');
+    if (memCtx) {
+        if (liveServerMemoryChart) liveServerMemoryChart.destroy();
+        liveServerMemoryChart = new Chart(memCtx, {
+            type: 'line',
+            data: {
+                labels: liveServerTimestamps,
+                datasets: [{
+                    label: 'Memory Usage (GB)',
+                    data: liveServerMemoryData,
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 2,
+                    pointBackgroundColor: '#10b981'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#a0a0a0' },
+                        grid: { color: '#3a4557' }
+                    },
+                    x: {
+                        ticks: { color: '#a0a0a0' },
+                        grid: { color: '#3a4557' }
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -350,6 +689,22 @@ function stopLiveServer() {
     if (liveServerAbortController) {
         liveServerAbortController.abort();
         liveServerAbortController = null;
+
+        // Reset data buffers
+        liveServerTimestamps = [];
+        liveServerCpuData = [];
+        liveServerMemoryData = [];
+
+        // Destroy charts
+        if (liveServerCpuChart) {
+            liveServerCpuChart.destroy();
+            liveServerCpuChart = null;
+        }
+        if (liveServerMemoryChart) {
+            liveServerMemoryChart.destroy();
+            liveServerMemoryChart = null;
+        }
+
         showResponse({ message: 'Zatrzymano nasłuchiwanie SSE' }, 200);
     }
 }

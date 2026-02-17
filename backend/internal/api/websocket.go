@@ -97,6 +97,7 @@ func (h *WebSocketHandler) HandleAgent(w http.ResponseWriter, r *http.Request) {
 		SendCh:  make(chan []byte, 256),
 		CloseCh: make(chan struct{}),
 	}
+	agentConn.SetApproved(server.Approved)
 
 	h.hub.Register <- agentConn
 	log.Printf("WebSocket: agent %s registered to hub", authMsg.UUID)
@@ -120,10 +121,10 @@ func (h *WebSocketHandler) HandleAgent(w http.ResponseWriter, r *http.Request) {
 
 	// 6. Start Loops
 	go h.writePump(agentConn)
-	h.readPump(agentConn, server.Approved)
+	h.readPump(agentConn)
 }
 
-func (h *WebSocketHandler) readPump(agent *ws.AgentConnection, approved bool) {
+func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 	defer func() {
 		h.hub.Unregister <- agent
 		agent.Conn.Close()
@@ -142,8 +143,6 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection, approved bool) {
 			break
 		}
 
-		log.Printf("WebSocket: received raw message: %s", string(message))
-
 		msg, err := ws.ParseMessage(message)
 		if err != nil {
 			continue
@@ -151,8 +150,7 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection, approved bool) {
 
 		switch m := msg.(type) {
 		case ws.AgentMetricsMessage:
-			log.Printf("WebSocket: received metrics from %s with %d containers", agent.UUID, len(m.Containers))
-			if approved {
+			if agent.IsApproved() {
 				if m.Host != nil {
 					ts := m.Timestamp
 					if m.Host.Timestamp > 0 {
@@ -235,18 +233,7 @@ func (h *WebSocketHandler) writePump(agent *ws.AgentConnection) {
 				return
 			}
 
-			w, err := agent.Conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				return
-			}
-			w.Write(message)
-
-			n := len(agent.SendCh)
-			for i := 0; i < n; i++ {
-				w.Write(<-agent.SendCh)
-			}
-
-			if err := w.Close(); err != nil {
+			if err := agent.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
 

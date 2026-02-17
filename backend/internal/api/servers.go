@@ -3,19 +3,22 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"backend/internal/models"
+	ws "backend/internal/websocket"
 
 	"github.com/gorilla/mux"
 )
 
 type ServersHandler struct {
-	db *sql.DB
+	db  *sql.DB
+	hub *ws.AgentHub
 }
 
-func NewServersHandler(db *sql.DB) *ServersHandler {
-	return &ServersHandler{db: db}
+func NewServersHandler(db *sql.DB, hub *ws.AgentHub) *ServersHandler {
+	return &ServersHandler{db: db, hub: hub}
 }
 
 func (h *ServersHandler) HandleList(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +75,24 @@ func (h *ServersHandler) HandleApprove(w http.ResponseWriter, r *http.Request) {
 	if err := serverModel.Approve(h.db, uuid); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if h.hub != nil {
+		authResp := ws.AuthResponseMessage{
+			Type:     ws.MsgTypeAuthResponse,
+			Approved: true,
+		}
+
+		if payload, err := json.Marshal(authResp); err != nil {
+			log.Printf("failed to marshal approval response for %s: %v", uuid, err)
+		} else {
+			h.hub.SetApproved(uuid, true)
+			if err := h.hub.SendToAgent(uuid, payload); err != nil {
+				log.Printf("server %s approved but not pushed to websocket: %v", uuid, err)
+			} else {
+				log.Printf("server %s approved and pushed to connected agent", uuid)
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

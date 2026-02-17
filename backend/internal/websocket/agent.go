@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,10 +12,19 @@ import (
 )
 
 type AgentConnection struct {
-	UUID    string
-	Conn    *websocket.Conn
-	SendCh  chan []byte
-	CloseCh chan struct{}
+	UUID     string
+	Conn     *websocket.Conn
+	SendCh   chan []byte
+	CloseCh  chan struct{}
+	approved atomic.Bool
+}
+
+func (a *AgentConnection) SetApproved(approved bool) {
+	a.approved.Store(approved)
+}
+
+func (a *AgentConnection) IsApproved() bool {
+	return a.approved.Load()
 }
 
 type AgentHub struct {
@@ -71,6 +81,19 @@ func (h *AgentHub) SendToAgent(uuid string, message []byte) error {
 	case <-time.After(5 * time.Second):
 		return errors.New("timeout sending message to agent")
 	}
+}
+
+func (h *AgentHub) SetApproved(uuid string, approved bool) bool {
+	h.mu.RLock()
+	agent, ok := h.Connections[uuid]
+	h.mu.RUnlock()
+
+	if !ok {
+		return false
+	}
+
+	agent.SetApproved(approved)
+	return true
 }
 
 func (h *AgentHub) RequestAgent(agentUUID string, action, target string) (json.RawMessage, error) {
