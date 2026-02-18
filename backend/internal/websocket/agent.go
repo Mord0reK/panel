@@ -28,37 +28,57 @@ func (a *AgentConnection) IsApproved() bool {
 }
 
 type AgentHub struct {
-	Connections     map[string]*AgentConnection
+	connections     map[string]*AgentConnection
 	Register        chan *AgentConnection
 	Unregister      chan *AgentConnection
 	PendingCommands sync.Map // map[string]chan []byte (commandID -> response channel)
 	mu              sync.RWMutex
+	stopCh          chan struct{}
 }
 
 func NewHub() *AgentHub {
 	return &AgentHub{
-		Connections: make(map[string]*AgentConnection),
+		connections: make(map[string]*AgentConnection),
 		Register:    make(chan *AgentConnection),
 		Unregister:  make(chan *AgentConnection),
+		stopCh:      make(chan struct{}),
 	}
+}
+
+// Stop signals the Run loop to exit.
+func (h *AgentHub) Stop() {
+	close(h.stopCh)
+}
+
+// GetConnection returns the active AgentConnection for the given UUID, or nil.
+func (h *AgentHub) GetConnection(uuid string) *AgentConnection {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.connections[uuid]
 }
 
 func (h *AgentHub) Run() {
 	for {
 		select {
+		case <-h.stopCh:
+			return
+
 		case agent := <-h.Register:
 			h.mu.Lock()
-			if old, ok := h.Connections[agent.UUID]; ok {
+			if old, ok := h.connections[agent.UUID]; ok {
 				close(old.CloseCh)
-				delete(h.Connections, agent.UUID)
+				delete(h.connections, agent.UUID)
 			}
-			h.Connections[agent.UUID] = agent
+			h.connections[agent.UUID] = agent
 			h.mu.Unlock()
 
 		case agent := <-h.Unregister:
 			h.mu.Lock()
-			if _, ok := h.Connections[agent.UUID]; ok {
-				delete(h.Connections, agent.UUID)
+			// Only act if this is still the current connection for this UUID.
+			// A reconnecting agent replaces the entry; the old goroutines must
+			// not close/delete the new connection.
+			if current, ok := h.connections[agent.UUID]; ok && current == agent {
+				delete(h.connections, agent.UUID)
 				close(agent.CloseCh)
 			}
 			h.mu.Unlock()
@@ -68,7 +88,7 @@ func (h *AgentHub) Run() {
 
 func (h *AgentHub) SendToAgent(uuid string, message []byte) error {
 	h.mu.RLock()
-	agent, ok := h.Connections[uuid]
+	agent, ok := h.connections[uuid]
 	h.mu.RUnlock()
 
 	if !ok {
@@ -85,7 +105,7 @@ func (h *AgentHub) SendToAgent(uuid string, message []byte) error {
 
 func (h *AgentHub) SetApproved(uuid string, approved bool) bool {
 	h.mu.RLock()
-	agent, ok := h.Connections[uuid]
+	agent, ok := h.connections[uuid]
 	h.mu.RUnlock()
 
 	if !ok {

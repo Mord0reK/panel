@@ -35,6 +35,9 @@ func New(dbPath string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	// SQLite supports only one concurrent writer; cap the pool to prevent SQLITE_BUSY.
+	db.SetMaxOpenConns(1)
+
 	return db, nil
 }
 

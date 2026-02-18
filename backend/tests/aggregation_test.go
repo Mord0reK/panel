@@ -35,12 +35,12 @@ func TestAggregation(t *testing.T) {
 			val = 20.0
 		}
 		_, err := tx.Exec(`INSERT INTO metrics_5s
-			(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			"agent-agg", "c-agg", ts,
 			val, val, val,
 			100.0, 100.0, 100.0,
-			200.0,
+			200.0, 0.0, 0.0, 0.0,
 			1000.0, 1000.0, 1000.0,
 			2000.0, 2000.0, 2000.0)
 		require.NoError(t, err)
@@ -52,36 +52,24 @@ func TestAggregation(t *testing.T) {
 			val = 50.0
 		}
 		_, err := tx.Exec(`INSERT INTO metrics_5s
-			(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			"agent-agg", models.HostMainContainerID, ts,
 			val, val, val,
 			2048.0, 2048.0, 2048.0,
-			300.0,
+			300.0, 150.0, 150.0, 150.0,
 			1200.0, 1200.0, 1200.0,
 			900.0, 900.0, 900.0,
-		)
-		require.NoError(t, err)
-
-		_, err = tx.Exec(`INSERT INTO metrics_5s
-			(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			"agent-agg", models.HostDiskWriteContainerID, ts,
-			0.0, 0.0, 0.0,
-			0.0, 0.0, 0.0,
-			0.0,
-			150.0, 150.0, 150.0,
-			0.0, 0.0, 0.0,
 		)
 		require.NoError(t, err)
 	}
 	tx.Commit()
 
-	// Verify data exists (36 container + 36 host + 36 host_disk_write = 108)
+	// Verify data exists (36 container + 36 host = 72)
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s").Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 108, count)
+	assert.Equal(t, 72, count)
 
 	// Run Aggregation manually
 	agg.ProcessAggregation()
@@ -90,11 +78,8 @@ func TestAggregation(t *testing.T) {
 	// 36 points (5s) -> aggregated to 15s intervals => 12 points expected.
 	err = db.QueryRow("SELECT COUNT(*) FROM metrics_15s").Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 36, count)
+	assert.Equal(t, 24, count)
 	err = db.QueryRow("SELECT COUNT(*) FROM metrics_15s WHERE container_id=?", models.HostMainContainerID).Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 12, count)
-	err = db.QueryRow("SELECT COUNT(*) FROM metrics_15s WHERE container_id=?", models.HostDiskWriteContainerID).Scan(&count)
 	require.NoError(t, err)
 	assert.Equal(t, 12, count)
 

@@ -242,7 +242,16 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*
 					info.CPU = (cpuDelta / systemDelta) * onlineCPUs * 100.0
 				}
 
-				info.MemUsed = stats.MemoryStats.Usage
+				// docker stats subtracts cache (inactive_file) from usage, we do the same
+				memUsed := stats.MemoryStats.Usage
+				if stats.MemoryStats.Stats != nil {
+					if inactiveFile, ok := stats.MemoryStats.Stats["inactive_file"]; ok && memUsed > inactiveFile {
+						memUsed -= inactiveFile
+					} else if cache, ok := stats.MemoryStats.Stats["cache"]; ok && memUsed > cache {
+						memUsed -= cache
+					}
+				}
+				info.MemUsed = memUsed
 				memLimit := stats.MemoryStats.Limit
 				if memLimit > 0 {
 					info.MemPercent = float64(info.MemUsed) / float64(memLimit) * 100.0
@@ -290,15 +299,24 @@ func parseContainerStats(stats *container.StatsResponse) *ContainerStats {
 	result.CPU.CPUSystem = float64(stats.CPUStats.SystemUsage)
 	result.CPU.OnlineCPUs = int64(stats.CPUStats.OnlineCPUs)
 
-	result.Memory.Usage = stats.MemoryStats.Usage
 	result.Memory.Limit = stats.MemoryStats.Limit
-	if result.Memory.Limit > 0 {
-		result.Memory.Percent = float64(result.Memory.Usage) / float64(result.Memory.Limit) * 100.0
-	}
 	if stats.MemoryStats.Stats != nil {
 		result.Memory.Cache = stats.MemoryStats.Stats["cache"]
 		result.Memory.RSS = stats.MemoryStats.Stats["rss"]
 		result.Memory.Swap = stats.MemoryStats.Stats["swap"]
+	}
+	// docker stats subtracts cache (inactive_file) from usage, we do the same
+	memUsed := stats.MemoryStats.Usage
+	if stats.MemoryStats.Stats != nil {
+		if inactiveFile, ok := stats.MemoryStats.Stats["inactive_file"]; ok && memUsed > inactiveFile {
+			memUsed -= inactiveFile
+		} else if result.Memory.Cache > 0 && memUsed > result.Memory.Cache {
+			memUsed -= result.Memory.Cache
+		}
+	}
+	result.Memory.Usage = memUsed
+	if result.Memory.Limit > 0 {
+		result.Memory.Percent = float64(result.Memory.Usage) / float64(result.Memory.Limit) * 100.0
 	}
 
 	if len(stats.BlkioStats.IoServiceBytesRecursive) > 0 {

@@ -117,36 +117,24 @@ func TestServerHistoryRangeOver1mIncludesHostFromDB(t *testing.T) {
 
 	now := time.Now().Unix()
 	_, err = db.Exec(`INSERT INTO metrics_1m
-		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"s2", models.HostMainContainerID, now-300,
 		35.0, 30.0, 40.0,
 		4096.0, 4000.0, 4200.0,
-		200.0,
+		200.0, 120.0, 100.0, 140.0,
 		1000.0, 900.0, 1100.0,
 		800.0, 700.0, 900.0,
 	)
 	require.NoError(t, err)
 
 	_, err = db.Exec(`INSERT INTO metrics_1m
-		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"s2", models.HostDiskWriteContainerID, now-300,
-		0.0, 0.0, 0.0,
-		0.0, 0.0, 0.0,
-		0.0,
-		120.0, 100.0, 140.0,
-		0.0, 0.0, 0.0,
-	)
-	require.NoError(t, err)
-
-	_, err = db.Exec(`INSERT INTO metrics_1m
-		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"s2", "c2", now-300,
 		15.0, 10.0, 20.0,
 		1024.0, 1000.0, 1100.0,
-		300.0,
+		300.0, 0.0, 0.0, 0.0,
 		500.0, 450.0, 550.0,
 		450.0, 400.0, 500.0,
 	)

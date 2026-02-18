@@ -4,6 +4,11 @@ import (
 	"sync"
 )
 
+// maxPendingPerContainer caps the retry queue for a single agent/container pair.
+// If the database is unavailable for longer than this many seconds, the oldest
+// unaggregated points are dropped to prevent unbounded memory growth.
+const maxPendingPerContainer = 1200 // 20 minutes of 1s resolution
+
 type BufferManager struct {
 	Buffers     map[string]map[string]*RingBuffer
 	HostBuffers map[string]*HostRingBuffer
@@ -209,6 +214,20 @@ func (bm *BufferManager) GetAllHostBuffers() map[string]*HostRingBuffer {
 	return snapshot
 }
 
+// RemoveAgentBuffers removes all in-memory buffers and pending queues for a given agent.
+// Call this when an agent disconnects so stale ring-buffer allocations are freed.
+// The 60-second live cache is NOT affected for other agents; when this agent reconnects,
+// GetOrCreate will allocate a fresh buffer.
+func (bm *BufferManager) RemoveAgentBuffers(agentUUID string) {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+
+	delete(bm.Buffers, agentUUID)
+	delete(bm.HostBuffers, agentUUID)
+	delete(bm.pending, agentUUID)
+	delete(bm.pendingHost, agentUUID)
+}
+
 func (bm *BufferManager) DrainPendingMetrics() map[string]map[string][]MetricPoint {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
@@ -249,6 +268,10 @@ func (bm *BufferManager) RequeuePendingMetrics(failed map[string]map[string][]Me
 			requeued := make([]MetricPoint, 0, len(points)+len(existing))
 			requeued = append(requeued, points...)
 			requeued = append(requeued, existing...)
+			// Cap to avoid unbounded growth when DB is unavailable.
+			if len(requeued) > maxPendingPerContainer {
+				requeued = requeued[len(requeued)-maxPendingPerContainer:]
+			}
 			bm.pending[agentID][containerID] = requeued
 		}
 	}
@@ -286,6 +309,10 @@ func (bm *BufferManager) RequeuePendingHostMetrics(failed map[string][]HostMetri
 		requeued := make([]HostMetricPoint, 0, len(points)+len(existing))
 		requeued = append(requeued, points...)
 		requeued = append(requeued, existing...)
+		// Cap to avoid unbounded growth when DB is unavailable.
+		if len(requeued) > maxPendingPerContainer {
+			requeued = requeued[len(requeued)-maxPendingPerContainer:]
+		}
 		bm.pendingHost[agentID] = requeued
 	}
 }

@@ -78,9 +78,9 @@ func TestDatabaseInsertAndRead(t *testing.T) {
 
 	// Test Metrics
 	_, err = db.Exec(`INSERT INTO metrics_5s
-		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"server1", "cont1", 1234567890, 10.5, 10.5, 10.5, 1024.0, 1024.0, 1024.0, 2048.0, 100.0, 100.0, 100.0, 200.0, 200.0, 200.0)
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"server1", "cont1", 1234567890, 10.5, 10.5, 10.5, 1024.0, 1024.0, 1024.0, 2048.0, 0.0, 0.0, 0.0, 100.0, 100.0, 100.0, 200.0, 200.0, 200.0)
 	assert.NoError(t, err)
 
 	var cpuPercent float64
@@ -89,9 +89,9 @@ func TestDatabaseInsertAndRead(t *testing.T) {
 	assert.Equal(t, 10.5, cpuPercent)
 
 	_, err = db.Exec(`INSERT INTO metrics_5s
-		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"server1", models.HostMainContainerID, 1234567890, 30.0, 30.0, 30.0, 2048.0, 2048.0, 2048.0, 100.0, 1000.0, 1000.0, 1000.0, 800.0, 800.0, 800.0)
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"server1", models.HostMainContainerID, 1234567890, 30.0, 30.0, 30.0, 2048.0, 2048.0, 2048.0, 100.0, 150.0, 150.0, 150.0, 1000.0, 1000.0, 1000.0, 800.0, 800.0, 800.0)
 	assert.NoError(t, err)
 
 	err = db.QueryRow("SELECT cpu_avg FROM metrics_5s WHERE container_id=? AND timestamp=?", models.HostMainContainerID, 1234567890).Scan(&cpuPercent)

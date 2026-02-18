@@ -96,11 +96,8 @@ func TestBulkInserter(t *testing.T) {
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s").Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 3, count)
+	assert.Equal(t, 2, count)
 	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s WHERE container_id=?", models.HostMainContainerID).Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
-	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s WHERE container_id=?", models.HostDiskWriteContainerID).Scan(&count)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 

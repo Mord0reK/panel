@@ -22,7 +22,10 @@ type aggregatedMetricRow struct {
 	MemMin float64
 	MemMax float64
 
-	DiskAvg float64
+	DiskAvg      float64
+	DiskWriteAvg float64
+	DiskWriteMin float64
+	DiskWriteMax float64
 
 	NetRxAvg float64
 	NetRxMin float64
@@ -157,7 +160,7 @@ func (bi *BulkInserter) bulkInsert(agentID, containerID string, points []MetricP
 		agent_uuid, container_id, timestamp,
 		cpu_avg, cpu_min, cpu_max,
 		mem_avg, mem_min, mem_max,
-		disk_avg,
+		disk_avg, disk_write_avg, disk_write_min, disk_write_max,
 		net_rx_avg, net_rx_min, net_rx_max,
 		net_tx_avg, net_tx_min, net_tx_max
 	) VALUES `
@@ -165,7 +168,7 @@ func (bi *BulkInserter) bulkInsert(agentID, containerID string, points []MetricP
 	placeholders := []string{}
 
 	for _, row := range rows {
-		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 		vals = append(vals,
 			agentID,
 			containerID,
@@ -177,6 +180,9 @@ func (bi *BulkInserter) bulkInsert(agentID, containerID string, points []MetricP
 			row.MemMin,
 			row.MemMax,
 			row.DiskAvg,
+			row.DiskWriteAvg,
+			row.DiskWriteMin,
+			row.DiskWriteMax,
 			row.NetRxAvg,
 			row.NetRxMin,
 			row.NetRxMax,
@@ -216,7 +222,7 @@ func (bi *BulkInserter) bulkInsertHost(agentID string, points []HostMetricPoint)
 		agent_uuid, container_id, timestamp,
 		cpu_avg, cpu_min, cpu_max,
 		mem_avg, mem_min, mem_max,
-		disk_avg,
+		disk_avg, disk_write_avg, disk_write_min, disk_write_max,
 		net_rx_avg, net_rx_min, net_rx_max,
 		net_tx_avg, net_tx_min, net_tx_max
 	) VALUES `
@@ -224,7 +230,7 @@ func (bi *BulkInserter) bulkInsertHost(agentID string, points []HostMetricPoint)
 	placeholders := []string{}
 
 	for _, row := range rows {
-		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 		vals = append(vals,
 			agentID,
 			models.HostMainContainerID,
@@ -236,32 +242,15 @@ func (bi *BulkInserter) bulkInsertHost(agentID string, points []HostMetricPoint)
 			row.MemUsedMin,
 			row.MemUsedMax,
 			row.DiskReadBytesPerSecAvg,
+			row.DiskWriteBytesPerSecAvg,
+			row.DiskWriteBytesPerSecMin,
+			row.DiskWriteBytesPerSecMax,
 			row.NetRxBytesPerSecAvg,
 			row.NetRxBytesPerSecMin,
 			row.NetRxBytesPerSecMax,
 			row.NetTxBytesPerSecAvg,
 			row.NetTxBytesPerSecMin,
 			row.NetTxBytesPerSecMax,
-		)
-
-		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-		vals = append(vals,
-			agentID,
-			models.HostDiskWriteContainerID,
-			row.Timestamp,
-			0.0,
-			0.0,
-			0.0,
-			0.0,
-			0.0,
-			0.0,
-			0.0,
-			row.DiskWriteBytesPerSecAvg,
-			row.DiskWriteBytesPerSecMin,
-			row.DiskWriteBytesPerSecMax,
-			0.0,
-			0.0,
-			0.0,
 		)
 	}
 

@@ -16,10 +16,11 @@ import (
 type SSEHandler struct {
 	db            *sql.DB
 	bufferManager *buffer.BufferManager
+	corsOrigin    string
 }
 
-func NewSSEHandler(db *sql.DB, bufferManager *buffer.BufferManager) *SSEHandler {
-	return &SSEHandler{db: db, bufferManager: bufferManager}
+func NewSSEHandler(db *sql.DB, bufferManager *buffer.BufferManager, corsOrigin string) *SSEHandler {
+	return &SSEHandler{db: db, bufferManager: bufferManager, corsOrigin: corsOrigin}
 }
 
 func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +28,7 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Origin", h.corsOrigin)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -101,7 +102,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Origin", h.corsOrigin)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

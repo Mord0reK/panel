@@ -128,6 +128,10 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 	defer func() {
 		h.hub.Unregister <- agent
 		agent.Conn.Close()
+		// Free all in-memory ring-buffers for this agent so stale allocations
+		// don't accumulate when containers are rotated or servers go offline.
+		h.bufferManager.RemoveAgentBuffers(agent.UUID)
+		log.Printf("WebSocket: freed buffer memory for agent %s", agent.UUID)
 	}()
 
 	agent.Conn.SetReadLimit(512 * 1024) // 512KB

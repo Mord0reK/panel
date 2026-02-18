@@ -21,7 +21,7 @@ func TestSSEAPI(t *testing.T) {
 	defer db.Close()
 
 	bm := buffer.NewBufferManager()
-	handler := api.NewSSEHandler(db, bm)
+	handler := api.NewSSEHandler(db, bm, "*")
 	r := mux.NewRouter()
 	r.HandleFunc("/api/metrics/live/all", handler.HandleLiveAll).Methods("GET")
 

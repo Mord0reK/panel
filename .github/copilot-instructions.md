@@ -93,6 +93,5 @@ Po każdej implementacji uruchom testy:
 - Frontend: `pnpm test` lub weryfikacja przez Playwright MCP
 - Upewnij się że wszystkie testy przechodzą przed oddaniem pracy
 
-### Kod tylko na żądanie
-
-Nie generuj kodu jeśli użytkownik tego nie poprosił. Najpierw plan/omówienie, kod dopiero gdy użytkownik potwierdzi.
+### Powtórzenie
+NIGDY, PRZENIGDY NIE PYTAJ SIĘ CZY COŚ ZAIMPLEMENTOWAĆ, UŻYJ NARZĘDZIA `AskUserQuestion` BY ZAPYTAĆ UŻYTKOWNIKA O AKCEPTACJĘ PRACY. NIE MA OPCJI "NAPISZĘ KOD I ZAPYTAJĘ POTEM". TO JEST BŁĄD KTÓRY PROWADZI DO STRATY PREMIUM REQUESTÓW NA POPRAWKI.

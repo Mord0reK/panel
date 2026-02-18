@@ -3,13 +3,11 @@ package models
 import (
 	"database/sql"
 	"fmt"
-	"sort"
 	"time"
 )
 
 const (
-	HostMainContainerID      = "__host__"
-	HostDiskWriteContainerID = "__host_disk_write__"
+	HostMainContainerID = "__host__"
 )
 
 type RawMetricPoint struct {
@@ -34,20 +32,23 @@ type RawHostMetricPoint struct {
 }
 
 type HistoricalMetricPoint struct {
-	Timestamp int64   `json:"timestamp"`
-	CPUAvg    float64 `json:"cpu_avg"`
-	CPUMin    float64 `json:"cpu_min"`
-	CPUMax    float64 `json:"cpu_max"`
-	MemAvg    float64 `json:"mem_avg"`
-	MemMin    float64 `json:"mem_min"`
-	MemMax    float64 `json:"mem_max"`
-	DiskAvg   float64 `json:"disk_avg"`
-	NetRxAvg  float64 `json:"net_rx_avg"`
-	NetRxMin  float64 `json:"net_rx_min"`
-	NetRxMax  float64 `json:"net_rx_max"`
-	NetTxAvg  float64 `json:"net_tx_avg"`
-	NetTxMin  float64 `json:"net_tx_min"`
-	NetTxMax  float64 `json:"net_tx_max"`
+	Timestamp    int64   `json:"timestamp"`
+	CPUAvg       float64 `json:"cpu_avg"`
+	CPUMin       float64 `json:"cpu_min"`
+	CPUMax       float64 `json:"cpu_max"`
+	MemAvg       float64 `json:"mem_avg"`
+	MemMin       float64 `json:"mem_min"`
+	MemMax       float64 `json:"mem_max"`
+	DiskAvg      float64 `json:"disk_avg"`
+	DiskWriteAvg float64 `json:"disk_write_avg"`
+	DiskWriteMin float64 `json:"disk_write_min"`
+	DiskWriteMax float64 `json:"disk_write_max"`
+	NetRxAvg     float64 `json:"net_rx_avg"`
+	NetRxMin     float64 `json:"net_rx_min"`
+	NetRxMax     float64 `json:"net_rx_max"`
+	NetTxAvg     float64 `json:"net_tx_avg"`
+	NetTxMin     float64 `json:"net_tx_min"`
+	NetTxMax     float64 `json:"net_tx_max"`
 }
 
 type HistoricalHostMetricPoint struct {
@@ -109,7 +110,7 @@ func GetHistoricalMetrics(db *sql.DB, agentUUID, containerID, rangeKey string) (
 		SELECT timestamp,
 			cpu_avg, cpu_min, cpu_max,
 			mem_avg, mem_min, mem_max,
-			disk_avg,
+			disk_avg, disk_write_avg, disk_write_min, disk_write_max,
 			net_rx_avg, net_rx_min, net_rx_max,
 			net_tx_avg, net_tx_min, net_tx_max
 		FROM %s WHERE agent_uuid=? AND container_id=? AND timestamp>=? AND timestamp<=?
@@ -128,7 +129,7 @@ func GetHistoricalMetrics(db *sql.DB, agentUUID, containerID, rangeKey string) (
 			&p.Timestamp,
 			&p.CPUAvg, &p.CPUMin, &p.CPUMax,
 			&p.MemAvg, &p.MemMin, &p.MemMax,
-			&p.DiskAvg,
+			&p.DiskAvg, &p.DiskWriteAvg, &p.DiskWriteMin, &p.DiskWriteMax,
 			&p.NetRxAvg, &p.NetRxMin, &p.NetRxMax,
 			&p.NetTxAvg, &p.NetTxMin, &p.NetTxMax,
 		)
@@ -152,110 +153,40 @@ func GetHistoricalHostMetrics(db *sql.DB, agentUUID, rangeKey string) ([]Histori
 	table := fmt.Sprintf("metrics_%s", cfg.TableSuffix)
 
 	query := fmt.Sprintf(`
-		SELECT container_id, timestamp,
+		SELECT timestamp,
 			cpu_avg, cpu_min, cpu_max,
 			mem_avg, mem_min, mem_max,
-			disk_avg,
+			disk_avg, disk_write_avg, disk_write_min, disk_write_max,
 			net_rx_avg, net_rx_min, net_rx_max,
 			net_tx_avg, net_tx_min, net_tx_max
-		FROM %s WHERE agent_uuid=? AND container_id IN (?, ?) AND timestamp>=? AND timestamp<=?
+		FROM %s WHERE agent_uuid=? AND container_id=? AND timestamp>=? AND timestamp<=?
 		ORDER BY timestamp ASC`, table)
 
-	rows, err := db.Query(query, agentUUID, HostMainContainerID, HostDiskWriteContainerID, fromTs, now)
+	rows, err := db.Query(query, agentUUID, HostMainContainerID, fromTs, now)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	type rawPoint struct {
-		ContainerID string
-		Timestamp   int64
-
-		CPUAvg float64
-		CPUMin float64
-		CPUMax float64
-
-		MemAvg float64
-		MemMin float64
-		MemMax float64
-
-		DiskAvg float64
-
-		NetRxAvg float64
-		NetRxMin float64
-		NetRxMax float64
-
-		NetTxAvg float64
-		NetTxMin float64
-		NetTxMax float64
-	}
-
-	pointsByTimestamp := make(map[int64]*HistoricalHostMetricPoint)
+	var points []HistoricalHostMetricPoint
 	for rows.Next() {
-		var raw rawPoint
+		var p HistoricalHostMetricPoint
 		err := rows.Scan(
-			&raw.ContainerID, &raw.Timestamp,
-			&raw.CPUAvg, &raw.CPUMin, &raw.CPUMax,
-			&raw.MemAvg, &raw.MemMin, &raw.MemMax,
-			&raw.DiskAvg,
-			&raw.NetRxAvg, &raw.NetRxMin, &raw.NetRxMax,
-			&raw.NetTxAvg, &raw.NetTxMin, &raw.NetTxMax,
+			&p.Timestamp,
+			&p.CPUAvg, &p.CPUMin, &p.CPUMax,
+			&p.MemUsedAvg, &p.MemUsedMin, &p.MemUsedMax,
+			&p.DiskReadBytesPerSecAvg, &p.DiskWriteBytesPerSecAvg, &p.DiskWriteBytesPerSecMin, &p.DiskWriteBytesPerSecMax,
+			&p.NetRxBytesPerSecAvg, &p.NetRxBytesPerSecMin, &p.NetRxBytesPerSecMax,
+			&p.NetTxBytesPerSecAvg, &p.NetTxBytesPerSecMin, &p.NetTxBytesPerSecMax,
 		)
 		if err != nil {
 			return nil, err
 		}
-
-		point, ok := pointsByTimestamp[raw.Timestamp]
-		if !ok {
-			point = &HistoricalHostMetricPoint{Timestamp: raw.Timestamp}
-			pointsByTimestamp[raw.Timestamp] = point
-		}
-
-		if raw.ContainerID == HostMainContainerID {
-			point.CPUAvg = raw.CPUAvg
-			point.CPUMin = raw.CPUMin
-			point.CPUMax = raw.CPUMax
-
-			point.MemUsedAvg = raw.MemAvg
-			point.MemUsedMin = raw.MemMin
-			point.MemUsedMax = raw.MemMax
-
-			point.DiskReadBytesPerSecAvg = raw.DiskAvg
-			point.DiskReadBytesPerSecMin = raw.DiskAvg
-			point.DiskReadBytesPerSecMax = raw.DiskAvg
-
-			point.NetRxBytesPerSecAvg = raw.NetRxAvg
-			point.NetRxBytesPerSecMin = raw.NetRxMin
-			point.NetRxBytesPerSecMax = raw.NetRxMax
-
-			point.NetTxBytesPerSecAvg = raw.NetTxAvg
-			point.NetTxBytesPerSecMin = raw.NetTxMin
-			point.NetTxBytesPerSecMax = raw.NetTxMax
-		}
-
-		if raw.ContainerID == HostDiskWriteContainerID {
-			point.DiskWriteBytesPerSecAvg = raw.NetRxAvg
-			point.DiskWriteBytesPerSecMin = raw.NetRxMin
-			point.DiskWriteBytesPerSecMax = raw.NetRxMax
-		}
+		// disk_avg stores disk_read; replicate min/max from avg for backward compatibility.
+		p.DiskReadBytesPerSecMin = p.DiskReadBytesPerSecAvg
+		p.DiskReadBytesPerSecMax = p.DiskReadBytesPerSecAvg
+		points = append(points, p)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	timestamps := make([]int64, 0, len(pointsByTimestamp))
-	for ts := range pointsByTimestamp {
-		timestamps = append(timestamps, ts)
-	}
-	sort.Slice(timestamps, func(i, j int) bool {
-		return timestamps[i] < timestamps[j]
-	})
-
-	points := make([]HistoricalHostMetricPoint, 0, len(timestamps))
-	for _, ts := range timestamps {
-		points = append(points, *pointsByTimestamp[ts])
-	}
-
-	return points, nil
+	return points, rows.Err()
 }

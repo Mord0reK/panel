@@ -52,7 +52,7 @@ func main() {
 	serversHandler := api.NewServersHandler(db, agentHub)
 	commandsHandler := api.NewCommandsHandler(agentHub)
 	metricsHandler := api.NewMetricsHandler(db, bufferManager)
-	sseHandler := api.NewSSEHandler(db, bufferManager)
+	sseHandler := api.NewSSEHandler(db, bufferManager, cfg.CORSOrigin)
 
 	// 6. Router
 	r := mux.NewRouter()
@@ -142,6 +142,7 @@ func main() {
 
 	bulkInserter.Stop()
 	aggregator.Stop()
+	agentHub.Stop()
 
 	// Final flush
 	bulkInserter.Flush()

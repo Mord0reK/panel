@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel — Server Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ════════════════════════════════════
+     LOGIN PAGE
+════════════════════════════════════════ -->
+<div id="page-login" class="page">
+  <div class="login-bg">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="login-logo">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4f6ef7" stroke-width="1.5">
+            <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
+            <polyline points="12 2 12 22"/>
+            <line x1="2" y1="8.5" x2="22" y2="8.5"/>
+            <line x1="2" y1="15.5" x2="22" y2="15.5"/>
+          </svg>
+        </div>
+        <h1 class="login-title">Panel</h1>
+        <p class="login-sub">Server Dashboard</p>
+      </div>
+
+      <div id="setup-banner" class="setup-banner hidden">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        Pierwsze uruchomienie — utwórz konto administratora
+      </div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="inp-username">Nazwa użytkownika</label>
+          <input id="inp-username" type="text" placeholder="admin" autocomplete="username" required />
+        </div>
+        <div class="form-group">
+          <label for="inp-password">Hasło</label>
+          <input id="inp-password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <div id="login-error" class="error-banner hidden"></div>
+        <button id="login-btn" type="submit" class="btn btn-primary btn-full">
+          <span id="login-btn-label">Zaloguj się</span>
+          <span id="login-btn-spinner" class="btn-spinner hidden"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     APP PAGE
+════════════════════════════════════════ -->
+<div id="page-app" class="page hidden">
+  <div class="layout">
+
+    <!-- ─── SIDEBAR ─────────────────── -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-brand">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4f6ef7" stroke-width="1.5">
+            <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
+          </svg>
+          <span>Panel</span>
+        </div>
+        <button id="btn-logout" class="icon-btn" title="Wyloguj">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sidebar-body">
+        <div class="sidebar-section-label">SERWERY</div>
+        <div id="servers-list">
+          <div class="sidebar-loading">
+            <div class="spinner-ring"></div>
+            Ładowanie serwerów...
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div id="sidebar-status" class="sidebar-status">
+          <span class="status-dot dot-gray"></span>
+          <span id="sidebar-status-text">Łączenie...</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ─── MAIN ─────────────────────── -->
+    <main class="main" id="main-content">
+
+      <!-- Welcome empty state -->
+      <div id="view-welcome" class="view-welcome">
+        <div class="welcome-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#2a2d3e" stroke-width="1">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+            <path d="M6 8h.01M9 8h5"/>
+            <path d="M6 11h.01M9 11h8"/>
+          </svg>
+        </div>
+        <h2>Witaj w Panelu</h2>
+        <p>Wybierz serwer z listy po lewej stronie, aby zobaczyć metryki i zarządzać kontenerami.</p>
+      </div>
+
+      <!-- ─── SERVER VIEW (hidden until server selected) ─── -->
+      <div id="view-server" class="view-server hidden">
+
+        <!-- Server header -->
+        <div class="server-header">
+          <div class="server-title-row">
+            <div class="server-hostname-block">
+              <span id="sv-online-dot" class="status-dot dot-gray"></span>
+              <h1 id="sv-hostname">—</h1>
+              <span id="sv-approve-badge" class="badge badge-warning hidden">Nieaktywny</span>
+            </div>
+            <div class="server-header-actions">
+              <button id="sv-btn-approve" class="btn btn-sm btn-success hidden">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Aktywuj agenta
+              </button>
+              <button id="sv-btn-delete" class="btn btn-sm btn-danger">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                </svg>
+                Usuń serwer
+              </button>
+            </div>
+          </div>
+          <div id="sv-meta" class="server-meta"></div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="live">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+            Live
+          </button>
+          <button class="tab-btn" data-tab="history">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+            Historia
+          </button>
+          <button class="tab-btn" data-tab="containers">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+              <line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+            Kontenery
+            <span id="containers-count-badge" class="tab-badge hidden">0</span>
+          </button>
+        </div>
+
+        <!-- ─── TAB: LIVE ─── -->
+        <div id="tab-live" class="tab-content">
+          <!-- Metric cards row -->
+          <div class="metrics-grid">
+            <div class="metric-card" id="mc-cpu">
+              <div class="metric-card-header">
+                <span class="metric-label">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                    <rect x="9" y="9" width="6" height="6"/>
+                    <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
+                    <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
+                    <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
+                    <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
+                  </svg>
+                  CPU
+                </span>
+                <span id="mc-cpu-val" class="metric-value">—</span>
+              </div>
+              <div class="metric-bar-wrap"><div id="mc-cpu-bar" class="metric-bar" style="width:0%"></div></div>
+              <div id="mc-cpu-sub" class="metric-sub"></div>
+            </div>
+
+            <div class="metric-card" id="mc-ram">
+              <div class="metric-card-header">
+                <span class="metric-label">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M6 19v-3M10 19v-3M14 19v-3M18 19v-3M8 11V9M16 11V9M12 11V9M20 17v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1"/>
+                    <rect x="2" y="5" width="20" height="8" rx="2"/>
+                  </svg>
+                  RAM
+                </span>
+                <span id="mc-ram-val" class="metric-value">—</span>
+              </div>
+              <div class="metric-bar-wrap"><div id="mc-ram-bar" class="metric-bar bar-blue" style="width:0%"></div></div>
+              <div id="mc-ram-sub" class="metric-sub"></div>
+            </div>
+
+            <div class="metric-card" id="mc-disk">
+              <div class="metric-card-header">
+                <span class="metric-label">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                  </svg>
+                  Disk I/O
+                </span>
+                <span id="mc-disk-val" class="metric-value">—</span>
+              </div>
+              <div class="metric-card-row">
+                <span id="mc-disk-read" class="metric-sub-item">↓ —</span>
+                <span id="mc-disk-write" class="metric-sub-item">↑ —</span>
+              </div>
+            </div>
+
+            <div class="metric-card" id="mc-net">
+              <div class="metric-card-header">
+                <span class="metric-label">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="9" height="9" rx="1"/>
+                    <rect x="13" y="2" width="9" height="9" rx="1"/>
+                    <rect x="2" y="13" width="9" height="9" rx="1"/>
+                    <path d="M13 16h2a2 2 0 0 1 2 2v3M18 13v.01M22 13v.01"/>
+                  </svg>
+                  Net I/O
+                </span>
+                <span id="mc-net-val" class="metric-value">—</span>
+              </div>
+              <div class="metric-card-row">
+                <span id="mc-net-rx" class="metric-sub-item">↓ —</span>
+                <span id="mc-net-tx" class="metric-sub-item">↑ —</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts row -->
+          <div class="charts-grid">
+            <div class="chart-card">
+              <div class="chart-title">CPU %</div>
+              <div class="chart-wrap"><canvas id="chart-live-cpu"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">RAM użyty</div>
+              <div class="chart-wrap"><canvas id="chart-live-ram"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">Disk I/O (B/s)</div>
+              <div class="chart-wrap"><canvas id="chart-live-disk"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">Net I/O (B/s)</div>
+              <div class="chart-wrap"><canvas id="chart-live-net"></canvas></div>
+            </div>
+          </div>
+
+          <!-- Live SSE status -->
+          <div id="live-sse-status" class="sse-status">
+            <span class="spinner-ring spinner-sm"></span>
+            Łączenie ze streamem...
+          </div>
+        </div>
+
+        <!-- ─── TAB: HISTORY ─── -->
+        <div id="tab-history" class="tab-content hidden">
+          <div class="history-toolbar">
+            <label class="toolbar-label">Zakres:</label>
+            <div class="range-buttons">
+              <button class="range-btn" data-range="1m">1m</button>
+              <button class="range-btn" data-range="5m">5m</button>
+              <button class="range-btn" data-range="15m">15m</button>
+              <button class="range-btn active" data-range="1h">1h</button>
+              <button class="range-btn" data-range="6h">6h</button>
+              <button class="range-btn" data-range="12h">12h</button>
+              <button class="range-btn" data-range="24h">24h</button>
+              <button class="range-btn" data-range="7d">7d</button>
+              <button class="range-btn" data-range="30d">30d</button>
+            </div>
+            <button id="btn-refresh-history" class="btn btn-sm btn-ghost">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="1 4 1 10 7 10"/>
+                <path d="M3.51 15a9 9 0 1 0 .49-3.56"/>
+              </svg>
+              Odśwież
+            </button>
+          </div>
+
+          <div id="history-loading" class="tab-loading hidden">
+            <div class="spinner-ring"></div>
+            Ładowanie danych historycznych...
+          </div>
+          <div id="history-error" class="tab-error hidden"></div>
+
+          <div id="history-content">
+            <div class="charts-grid">
+              <div class="chart-card">
+                <div class="chart-title">CPU %</div>
+                <div class="chart-wrap"><canvas id="chart-hist-cpu"></canvas></div>
+              </div>
+              <div class="chart-card">
+                <div class="chart-title">RAM użyty</div>
+                <div class="chart-wrap"><canvas id="chart-hist-ram"></canvas></div>
+              </div>
+              <div class="chart-card">
+                <div class="chart-title">Disk I/O (B/s)</div>
+                <div class="chart-wrap"><canvas id="chart-hist-disk"></canvas></div>
+              </div>
+              <div class="chart-card">
+                <div class="chart-title">Net I/O (B/s)</div>
+                <div class="chart-wrap"><canvas id="chart-hist-net"></canvas></div>
+              </div>
+            </div>
+
+            <!-- Container history table -->
+            <div class="section-title">Kontenery — Historia</div>
+            <div id="history-containers" class="history-containers"></div>
+          </div>
+        </div>
+
+        <!-- ─── TAB: CONTAINERS ─── -->
+        <div id="tab-containers" class="tab-content hidden">
+          <div class="containers-toolbar">
+            <div class="filter-buttons">
+              <button class="filter-btn active" data-filter="all">Wszystkie</button>
+              <button class="filter-btn" data-filter="running">Uruchomione</button>
+              <button class="filter-btn" data-filter="stopped">Zatrzymane</button>
+            </div>
+            <button id="btn-refresh-containers" class="btn btn-sm btn-ghost">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="1 4 1 10 7 10"/>
+                <path d="M3.51 15a9 9 0 1 0 .49-3.56"/>
+              </svg>
+              Odśwież
+            </button>
+          </div>
+
+          <div id="containers-loading" class="tab-loading hidden">
+            <div class="spinner-ring"></div>
+            Ładowanie kontenerów...
+          </div>
+          <div id="containers-error" class="tab-error hidden"></div>
+
+          <div id="containers-table-wrap" class="table-wrap">
+            <table class="containers-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Nazwa</th>
+                  <th>Obraz</th>
+                  <th>Projekt / Serwis</th>
+                  <th>CPU</th>
+                  <th>RAM</th>
+                  <th>Ostatnio widziany</th>
+                  <th>Akcje</th>
+                </tr>
+              </thead>
+              <tbody id="containers-tbody"></tbody>
+            </table>
+            <div id="containers-empty" class="table-empty hidden">
+              Brak kontenerów dla tego serwera
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /view-server -->
+    </main>
+  </div><!-- /layout -->
+</div><!-- /page-app -->
+
+<!-- MODAL: Confirm delete server -->
+<div id="modal-delete" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-icon modal-icon-danger">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    </div>
+    <h3>Usuń serwer</h3>
+    <p id="modal-delete-text">Czy na pewno chcesz usunąć serwer? Operacja jest nieodwracalna i usunie wszystkie dane metryk.</p>
+    <div class="modal-actions">
+      <button id="modal-cancel" class="btn btn-ghost">Anuluj</button>
+      <button id="modal-confirm" class="btn btn-danger">Usuń</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST notifications -->
+<div id="toast-container" class="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -9,6 +9,7 @@ type Config struct {
 	Port         string
 	DatabasePath string
 	JWTSecret    string
+	CORSOrigin   string
 }
 
 // Load reads configuration from environment variables or sets default values
@@ -17,6 +18,7 @@ func Load() *Config {
 		Port:         getEnv("PORT", "8080"),
 		DatabasePath: getEnv("DATABASE_PATH", "./data/backend.db"),
 		JWTSecret:    getEnv("JWT_SECRET", "default-secret-change-me"),
+		CORSOrigin:   getEnv("CORS_ORIGIN", "*"),
 	}
 }
 
