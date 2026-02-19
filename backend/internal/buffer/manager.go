@@ -214,8 +214,9 @@ func (bm *BufferManager) GetAllHostBuffers() map[string]*HostRingBuffer {
 	return snapshot
 }
 
-// RemoveAgentBuffers removes all in-memory buffers and pending queues for a given agent.
+// RemoveAgentBuffers removes only the live ring buffers (Buffers and HostBuffers) for a given agent.
 // Call this when an agent disconnects so stale ring-buffer allocations are freed.
+// The pending queues are NOT affected - they will be flushed to DB by the BulkInserter.
 // The 60-second live cache is NOT affected for other agents; when this agent reconnects,
 // GetOrCreate will allocate a fresh buffer.
 func (bm *BufferManager) RemoveAgentBuffers(agentUUID string) {
@@ -224,8 +225,9 @@ func (bm *BufferManager) RemoveAgentBuffers(agentUUID string) {
 
 	delete(bm.Buffers, agentUUID)
 	delete(bm.HostBuffers, agentUUID)
-	delete(bm.pending, agentUUID)
-	delete(bm.pendingHost, agentUUID)
+	// NOTE: pending and pendingHost are intentionally NOT deleted here.
+	// They will be flushed to DB by the BulkInserter on its next cycle (up to 10s delay).
+	// This prevents data loss during agent disconnect/reconnect scenarios.
 }
 
 func (bm *BufferManager) DrainPendingMetrics() map[string]map[string][]MetricPoint {

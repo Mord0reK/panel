@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"agent/internal/collector"
@@ -131,7 +133,7 @@ func runWebSocket() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	sysInfo, err := collector.CollectSystemInfo(ctx)
@@ -540,7 +542,8 @@ func runContainerCmd(args []string, action string) {
 	}
 
 	containerName := args[0]
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	dockerCli, err := docker.NewDockerClient()
 	if err != nil {
@@ -575,7 +578,8 @@ func runContainerCmd(args []string, action string) {
 }
 
 func runCheckUpdates(args []string) {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	dockerCli, err := docker.NewDockerClient()
 	if err != nil {
@@ -753,7 +757,8 @@ func runUpdate(args []string) {
 	}
 
 	target := args[0]
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	dockerCli, err := docker.NewDockerClient()
 	if err != nil {
