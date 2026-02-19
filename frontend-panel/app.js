@@ -4,7 +4,7 @@
 // CONFIG
 // ═══════════════════════════════════════════════
 const Config = {
-	BASE: 'http://serwerek.mouse-peacock.ts.net:8080',
+	BASE: 'http://localhost:8080',
 };
 
 // ═══════════════════════════════════════════════

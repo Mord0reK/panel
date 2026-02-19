@@ -87,18 +87,19 @@ type MetricRow struct {
 	ContainerID string
 	Timestamp   int64
 	// Values to aggregate
-	CPUAvg, CPUMin, CPUMax       float64
-	MemAvg, MemMin, MemMax       float64
-	DiskAvg                      float64
-	NetRxAvg, NetRxMin, NetRxMax float64
-	NetTxAvg, NetTxMin, NetTxMax float64
+	CPUAvg, CPUMin, CPUMax                   float64
+	MemAvg, MemMin, MemMax                   float64
+	DiskAvg                                  float64
+	DiskWriteAvg, DiskWriteMin, DiskWriteMax float64
+	NetRxAvg, NetRxMin, NetRxMax             float64
+	NetTxAvg, NetTxMin, NetTxMax             float64
 }
 
 func (a *Aggregator) fetchData(table string, threshold int64) ([]MetricRow, error) {
 	query := fmt.Sprintf(`SELECT agent_uuid, container_id, timestamp,
 		cpu_avg, cpu_min, cpu_max,
 		mem_avg, mem_min, mem_max,
-		disk_avg,
+		disk_avg, disk_write_avg, disk_write_min, disk_write_max,
 		net_rx_avg, net_rx_min, net_rx_max,
 		net_tx_avg, net_tx_min, net_tx_max
 		FROM %s WHERE timestamp < ? ORDER BY timestamp`, table)
@@ -116,7 +117,7 @@ func (a *Aggregator) fetchData(table string, threshold int64) ([]MetricRow, erro
 			&r.AgentUUID, &r.ContainerID, &r.Timestamp,
 			&r.CPUAvg, &r.CPUMin, &r.CPUMax,
 			&r.MemAvg, &r.MemMin, &r.MemMax,
-			&r.DiskAvg,
+			&r.DiskAvg, &r.DiskWriteAvg, &r.DiskWriteMin, &r.DiskWriteMax,
 			&r.NetRxAvg, &r.NetRxMin, &r.NetRxMax,
 			&r.NetTxAvg, &r.NetTxMin, &r.NetTxMax,
 		)
@@ -153,11 +154,12 @@ func (a *Aggregator) aggregateData(rows []MetricRow, interval time.Duration) []M
 					Timestamp:   bucket,
 					CPUMin:      math.MaxFloat64, CPUMax: -math.MaxFloat64,
 					MemMin: math.MaxFloat64, MemMax: -math.MaxFloat64,
+					DiskWriteMin: math.MaxFloat64, DiskWriteMax: -math.MaxFloat64,
 					NetRxMin: math.MaxFloat64, NetRxMax: -math.MaxFloat64,
 					NetTxMin: math.MaxFloat64, NetTxMax: -math.MaxFloat64,
 				}
 
-				var cpuSum, memSum, diskSum, netRxSum, netTxSum float64
+				var cpuSum, memSum, diskSum, diskWriteSum, netRxSum, netTxSum float64
 				count := float64(len(items))
 
 				for _, item := range items {
@@ -179,6 +181,14 @@ func (a *Aggregator) aggregateData(rows []MetricRow, interval time.Duration) []M
 
 					diskSum += item.DiskAvg
 
+					diskWriteSum += item.DiskWriteAvg
+					if item.DiskWriteMin < agg.DiskWriteMin {
+						agg.DiskWriteMin = item.DiskWriteMin
+					}
+					if item.DiskWriteMax > agg.DiskWriteMax {
+						agg.DiskWriteMax = item.DiskWriteMax
+					}
+
 					netRxSum += item.NetRxAvg
 					if item.NetRxMin < agg.NetRxMin {
 						agg.NetRxMin = item.NetRxMin
@@ -199,6 +209,7 @@ func (a *Aggregator) aggregateData(rows []MetricRow, interval time.Duration) []M
 				agg.CPUAvg = cpuSum / count
 				agg.MemAvg = memSum / count
 				agg.DiskAvg = diskSum / count
+				agg.DiskWriteAvg = diskWriteSum / count
 				agg.NetRxAvg = netRxSum / count
 				agg.NetTxAvg = netTxSum / count
 
@@ -218,7 +229,7 @@ func (a *Aggregator) insertAggregated(table string, rows []MetricRow) error {
 		agent_uuid, container_id, timestamp,
 		cpu_avg, cpu_min, cpu_max,
 		mem_avg, mem_min, mem_max,
-		disk_avg,
+		disk_avg, disk_write_avg, disk_write_min, disk_write_max,
 		net_rx_avg, net_rx_min, net_rx_max,
 		net_tx_avg, net_tx_min, net_tx_max
 	) VALUES `, table)
@@ -227,12 +238,12 @@ func (a *Aggregator) insertAggregated(table string, rows []MetricRow) error {
 	placeholders := []string{}
 
 	for _, r := range rows {
-		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 		vals = append(vals,
 			r.AgentUUID, r.ContainerID, r.Timestamp,
 			r.CPUAvg, r.CPUMin, r.CPUMax,
 			r.MemAvg, r.MemMin, r.MemMax,
-			r.DiskAvg,
+			r.DiskAvg, r.DiskWriteAvg, r.DiskWriteMin, r.DiskWriteMax,
 			r.NetRxAvg, r.NetRxMin, r.NetRxMax,
 			r.NetTxAvg, r.NetTxMin, r.NetTxMax,
 		)
