@@ -4,7 +4,7 @@
 // CONFIG
 // ═══════════════════════════════════════════════
 const Config = {
-  BASE: 'http://localhost:8080',
+	BASE: 'http://serwerek.mouse-peacock.ts.net:8080',
 };
 
 // ═══════════════════════════════════════════════
@@ -15,7 +15,7 @@ function fmtBytes(bytes) {
   if (v < 1) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.min(4, Math.floor(Math.log(v) / Math.log(1024)));
-  return `${(v / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+  return `${(v / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
 }
 
 function fmtBytesShort(bytes) {
@@ -23,11 +23,11 @@ function fmtBytesShort(bytes) {
   if (v < 1) return '0';
   const units = ['', 'K', 'M', 'G', 'T'];
   const i = Math.min(4, Math.floor(Math.log(v) / Math.log(1024)));
-  return `${(v / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)}${units[i]}`;
+  return `${(v / Math.pow(1024, i)).toFixed(i > 0 ? 2 : 0)}${units[i]}`;
 }
 
 function fmtPercent(v) {
-  return `${(v || 0).toFixed(1)}%`;
+  return `${(v || 0).toFixed(2)}%`;
 }
 
 function fmtTS(ts) {
@@ -179,12 +179,13 @@ const ChartFactory = {
 
     const ds = datasets.map(d => ({
       ...d,
-      backgroundColor: this.makeGradient(ctx, d.borderColor),
-      borderWidth: 1.5,
-      pointRadius: 0,
-      pointHoverRadius: 3,
-      fill: true,
-      tension: 0.3,
+      backgroundColor: d.fill !== false ? this.makeGradient(ctx, d.borderColor) : 'transparent',
+      borderWidth: d.borderWidth || 1.5,
+      pointRadius: d.pointRadius !== undefined ? d.pointRadius : 0,
+      pointHoverRadius: d.pointHoverRadius !== undefined ? d.pointHoverRadius : 3,
+      fill: d.fill !== false,
+      tension: d.tension !== undefined ? d.tension : 0.3,
+      borderDash: d.borderDash || undefined,
     }));
 
     return new Chart(ctx, {
@@ -272,6 +273,7 @@ const LiveMetrics = {
   charts: {},
   buffers: {},
   _serverInfo: null,
+  _serverUUID: null,
 
   _initBuffers() {
     this.buffers = {
@@ -291,8 +293,53 @@ const LiveMetrics = {
     });
   },
 
-  init(serverInfo) {
+  _loadHistoryData(points) {
+    if (!points || points.length === 0) return;
+    
+    // Pobierz ostatnie 60 punktów (1 minuta przy rozdzielczości 1s)
+    const recentPoints = points.slice(-this.MAX_POINTS);
+    
+    recentPoints.forEach(p => {
+      this.buffers.labels.push(fmtTS(p.timestamp));
+      this.buffers.cpu.push(p.cpu_avg || p.cpu || 0);
+      this.buffers.ram.push(p.mem_used_avg || p.mem_used || 0);
+      this.buffers.diskRead.push(p.disk_read_bytes_per_sec_avg || p.disk_read_bytes_per_sec || 0);
+      this.buffers.diskWrite.push(p.disk_write_bytes_per_sec_avg || p.disk_write_bytes_per_sec || 0);
+      this.buffers.netRx.push(p.net_rx_bytes_per_sec_avg || p.net_rx_bytes_per_sec || 0);
+      this.buffers.netTx.push(p.net_tx_bytes_per_sec_avg || p.net_tx_bytes_per_sec || 0);
+    });
+    
+    // Zaktualizuj wykresy historycznymi danymi
+    const setData = (chart, labels, ...dataSets) => {
+      if (!chart) return;
+      chart.data.labels = labels;
+      dataSets.forEach((ds, i) => { if (chart.data.datasets[i]) chart.data.datasets[i].data = ds; });
+      chart.update('none');
+    };
+    
+    setData(this.charts.cpu,  this.buffers.labels, this.buffers.cpu);
+    setData(this.charts.ram,  this.buffers.labels, this.buffers.ram);
+    setData(this.charts.disk, this.buffers.labels, this.buffers.diskRead, this.buffers.diskWrite);
+    setData(this.charts.net,  this.buffers.labels, this.buffers.netRx, this.buffers.netTx);
+    
+    // Zaktualizuj karty metryk ostatnimi wartościami
+    const lastPoint = recentPoints[recentPoints.length - 1];
+    if (lastPoint) {
+      this._updateCards({
+        cpu: lastPoint.cpu_avg || lastPoint.cpu || 0,
+        mem_used: lastPoint.mem_used_avg || lastPoint.mem_used || 0,
+        mem_percent: lastPoint.mem_percent || 0,
+        disk_read_bytes_per_sec: lastPoint.disk_read_bytes_per_sec_avg || lastPoint.disk_read_bytes_per_sec || 0,
+        disk_write_bytes_per_sec: lastPoint.disk_write_bytes_per_sec_avg || lastPoint.disk_write_bytes_per_sec || 0,
+        net_rx_bytes_per_sec: lastPoint.net_rx_bytes_per_sec_avg || lastPoint.net_rx_bytes_per_sec || 0,
+        net_tx_bytes_per_sec: lastPoint.net_tx_bytes_per_sec_avg || lastPoint.net_tx_bytes_per_sec || 0,
+      });
+    }
+  },
+
+  async init(serverInfo, uuid) {
     this._serverInfo = serverInfo;
+    this._serverUUID = uuid;
     this._initBuffers();
     this._destroyCharts();
 
@@ -300,7 +347,7 @@ const LiveMetrics = {
 
     this.charts.cpu = ChartFactory.create('chart-live-cpu',
       [{ label: 'CPU %', borderColor: C.accent }],
-      v => `${v.toFixed(1)}%`
+      v => `${v.toFixed(2)}%`
     );
     this.charts.ram = ChartFactory.create('chart-live-ram',
       [{ label: 'RAM', borderColor: C.blue }],
@@ -314,6 +361,18 @@ const LiveMetrics = {
       [{ label: 'RX', borderColor: C.purple }, { label: 'TX', borderColor: C.red }],
       v => `${fmtBytesShort(v)}/s`
     );
+    
+    // Pobierz dane historyczne z ostatniej minuty
+    if (uuid) {
+      try {
+        const data = await API.get(`/api/metrics/history/servers/${uuid}?range=1m`);
+        if (data.host && data.host.points) {
+          this._loadHistoryData(data.host.points);
+        }
+      } catch (e) {
+        console.warn('Nie udało się pobrać danych historycznych:', e.message);
+      }
+    }
   },
 
   // Normalizes PascalCase fields from SSE host payload to snake_case
@@ -412,11 +471,9 @@ const LiveMetrics = {
       memPct, 100,
       memTotal ? `${fmtBytes(h.mem_used)} / ${fmtBytes(memTotal)}` : fmtBytes(h.mem_used));
 
-    el('mc-disk-val').textContent = `${fmtBytes(h.disk_read_bytes_per_sec || 0)}/s`;
     el('mc-disk-read').textContent  = `↓ ${fmtBytes(h.disk_read_bytes_per_sec || 0)}/s`;
     el('mc-disk-write').textContent = `↑ ${fmtBytes(h.disk_write_bytes_per_sec || 0)}/s`;
 
-    el('mc-net-val').textContent = `${fmtBytes(h.net_rx_bytes_per_sec || 0)}/s`;
     el('mc-net-rx').textContent  = `↓ ${fmtBytes(h.net_rx_bytes_per_sec || 0)}/s`;
     el('mc-net-tx').textContent  = `↑ ${fmtBytes(h.net_tx_bytes_per_sec || 0)}/s`;
   },
@@ -450,26 +507,73 @@ const HistoryMetrics = {
     });
   },
 
+  _shouldShowMinMax() {
+    const rangesWithMinMax = ['5m', '15m', '30m', '1h', '6h', '12h', '24h', '7d', '30d'];
+    return rangesWithMinMax.includes(this._range);
+  },
+
   _initCharts() {
     this._destroyCharts();
     const C = ChartFactory.COLORS;
+    const showMinMax = this._shouldShowMinMax();
 
-    this.charts.cpu = ChartFactory.create('chart-hist-cpu',
-      [{ label: 'CPU avg', borderColor: C.accent }],
-      v => `${v.toFixed(1)}%`
-    );
-    this.charts.ram = ChartFactory.create('chart-hist-ram',
-      [{ label: 'RAM avg', borderColor: C.blue }],
-      v => fmtBytes(v)
-    );
-    this.charts.disk = ChartFactory.create('chart-hist-disk',
-      [{ label: 'Odczyt avg', borderColor: C.green }, { label: 'Zapis avg', borderColor: C.yellow }],
-      v => `${fmtBytesShort(v)}/s`
-    );
-    this.charts.net = ChartFactory.create('chart-hist-net',
-      [{ label: 'RX avg', borderColor: C.purple }, { label: 'TX avg', borderColor: C.red }],
-      v => `${fmtBytesShort(v)}/s`
-    );
+    if (showMinMax) {
+      this.charts.cpu = ChartFactory.create('chart-hist-cpu',
+        [
+          { label: 'CPU max', borderColor: C.red + '80', borderWidth: 1, fill: false, tension: 0.2 },
+          { label: 'CPU avg', borderColor: C.blue, borderWidth: 2, fill: true, tension: 0.3 },
+          { label: 'CPU min', borderColor: C.green + '80', borderWidth: 1, fill: false, tension: 0.2 }
+        ],
+        v => `${v.toFixed(2)}%`
+      );
+      this.charts.ram = ChartFactory.create('chart-hist-ram',
+        [
+          { label: 'RAM max', borderColor: C.red + '80', borderWidth: 1, fill: false, tension: 0.2 },
+          { label: 'RAM avg', borderColor: C.blue, borderWidth: 2, fill: true, tension: 0.3 },
+          { label: 'RAM min', borderColor: C.green + '80', borderWidth: 1, fill: false, tension: 0.2 }
+        ],
+        v => fmtBytes(v)
+      );
+      this.charts.disk = ChartFactory.create('chart-hist-disk',
+        [
+          { label: 'Odczyt max', borderColor: C.red + '80', borderWidth: 1, fill: false, tension: 0.2 },
+          { label: 'Odczyt avg', borderColor: C.blue, borderWidth: 2, fill: true, tension: 0.3 },
+          { label: 'Odczyt min', borderColor: C.green + '80', borderWidth: 1, fill: false, tension: 0.2 },
+          { label: 'Zapis max', borderColor: C.red + '80', borderWidth: 1, fill: false, tension: 0.2, borderDash: [5, 5] },
+          { label: 'Zapis avg', borderColor: C.accent, borderWidth: 2, fill: true, tension: 0.3 },
+          { label: 'Zapis min', borderColor: C.green + '80', borderWidth: 1, fill: false, tension: 0.2, borderDash: [5, 5] }
+        ],
+        v => `${fmtBytesShort(v)}/s`
+      );
+      this.charts.net = ChartFactory.create('chart-hist-net',
+        [
+          { label: 'RX max', borderColor: C.red + '80', borderWidth: 1, fill: false, tension: 0.2 },
+          { label: 'RX avg', borderColor: C.blue, borderWidth: 2, fill: true, tension: 0.3 },
+          { label: 'RX min', borderColor: C.green + '80', borderWidth: 1, fill: false, tension: 0.2 },
+          { label: 'TX max', borderColor: C.red + '80', borderWidth: 1, fill: false, tension: 0.2, borderDash: [5, 5] },
+          { label: 'TX avg', borderColor: C.accent, borderWidth: 2, fill: true, tension: 0.3 },
+          { label: 'TX min', borderColor: C.green + '80', borderWidth: 1, fill: false, tension: 0.2, borderDash: [5, 5] }
+        ],
+        v => `${fmtBytesShort(v)}/s`
+      );
+    } else {
+      this.charts.cpu = ChartFactory.create('chart-hist-cpu',
+        [{ label: 'CPU', borderColor: C.accent }],
+        v => `${v.toFixed(2)}%`
+      );
+      this.charts.ram = ChartFactory.create('chart-hist-ram',
+        [{ label: 'RAM', borderColor: C.blue }],
+        v => fmtBytes(v)
+      );
+      this.charts.disk = ChartFactory.create('chart-hist-disk',
+        [{ label: 'Odczyt', borderColor: C.green }, { label: 'Zapis', borderColor: C.yellow }],
+        v => `${fmtBytesShort(v)}/s`
+      );
+      this.charts.net = ChartFactory.create('chart-hist-net',
+        [{ label: 'RX', borderColor: C.purple }, { label: 'TX', borderColor: C.red }],
+        v => `${fmtBytesShort(v)}/s`
+      );
+    }
   },
 
   async load(uuid, range) {
@@ -498,35 +602,61 @@ const HistoryMetrics = {
   },
 
   _extractHost(points) {
-    if (!points || points.length === 0) return { labels: [], cpu: [], ram: [], diskRead: [], diskWrite: [], netRx: [], netTx: [] };
+    if (!points || points.length === 0) return { labels: [], cpu: [], cpuMin: [], cpuMax: [], ram: [], ramMin: [], ramMax: [], diskRead: [], diskWrite: [], diskWriteMin: [], diskWriteMax: [], netRx: [], netRxMin: [], netRxMax: [], netTx: [], netTxMin: [], netTxMax: [] };
     const raw = this._isRaw(points[0]);
 
     return {
-      labels:     points.map(p => fmtTS(p.timestamp)),
-      cpu:        points.map(p => raw ? (p.cpu || 0) : (p.cpu_avg || 0)),
-      ram:        points.map(p => raw ? (p.mem_used || 0) : (p.mem_used_avg || 0)),
-      diskRead:   points.map(p => raw ? (p.disk_read_bytes_per_sec || 0) : (p.disk_read_bytes_per_sec_avg || 0)),
-      diskWrite:  points.map(p => raw ? (p.disk_write_bytes_per_sec || 0) : (p.disk_write_bytes_per_sec_avg || 0)),
-      netRx:      points.map(p => raw ? (p.net_rx_bytes_per_sec || 0) : (p.net_rx_bytes_per_sec_avg || 0)),
-      netTx:      points.map(p => raw ? (p.net_tx_bytes_per_sec || 0) : (p.net_tx_bytes_per_sec_avg || 0)),
+      labels:        points.map(p => fmtTS(p.timestamp)),
+      cpu:           points.map(p => raw ? (p.cpu || 0) : (p.cpu_avg || 0)),
+      cpuMin:        points.map(p => raw ? (p.cpu || 0) : (p.cpu_min || 0)),
+      cpuMax:        points.map(p => raw ? (p.cpu || 0) : (p.cpu_max || 0)),
+      ram:           points.map(p => raw ? (p.mem_used || 0) : (p.mem_used_avg || 0)),
+      ramMin:        points.map(p => raw ? (p.mem_used || 0) : (p.mem_used_min || 0)),
+      ramMax:        points.map(p => raw ? (p.mem_used || 0) : (p.mem_used_max || 0)),
+      diskRead:      points.map(p => raw ? (p.disk_read_bytes_per_sec || 0) : (p.disk_read_bytes_per_sec_avg || 0)),
+      diskWrite:     points.map(p => raw ? (p.disk_write_bytes_per_sec || 0) : (p.disk_write_bytes_per_sec_avg || 0)),
+      diskWriteMin:  points.map(p => raw ? (p.disk_write_bytes_per_sec || 0) : (p.disk_write_bytes_per_sec_min || p.disk_write_bytes_per_sec_avg || 0)),
+      diskWriteMax:  points.map(p => raw ? (p.disk_write_bytes_per_sec || 0) : (p.disk_write_bytes_per_sec_max || p.disk_write_bytes_per_sec_avg || 0)),
+      netRx:         points.map(p => raw ? (p.net_rx_bytes_per_sec || 0) : (p.net_rx_bytes_per_sec_avg || 0)),
+      netRxMin:      points.map(p => raw ? (p.net_rx_bytes_per_sec || 0) : (p.net_rx_bytes_per_sec_min || p.net_rx_bytes_per_sec_avg || 0)),
+      netRxMax:      points.map(p => raw ? (p.net_rx_bytes_per_sec || 0) : (p.net_rx_bytes_per_sec_max || p.net_rx_bytes_per_sec_avg || 0)),
+      netTx:         points.map(p => raw ? (p.net_tx_bytes_per_sec || 0) : (p.net_tx_bytes_per_sec_avg || 0)),
+      netTxMin:      points.map(p => raw ? (p.net_tx_bytes_per_sec || 0) : (p.net_tx_bytes_per_sec_min || p.net_tx_bytes_per_sec_avg || 0)),
+      netTxMax:      points.map(p => raw ? (p.net_tx_bytes_per_sec || 0) : (p.net_tx_bytes_per_sec_max || p.net_tx_bytes_per_sec_avg || 0)),
     };
   },
 
   _renderHost(host) {
     const pts = host ? (host.points || []) : [];
     const d = this._extractHost(pts);
+    const showMinMax = this._shouldShowMinMax();
 
     const setChart = (chart, labels, ...sets) => {
       if (!chart) return;
       chart.data.labels = labels;
-      sets.forEach((s, i) => { chart.data.datasets[i].data = s; });
+      sets.forEach((s, i) => { if (chart.data.datasets[i]) chart.data.datasets[i].data = s; });
       chart.update();
     };
 
-    setChart(this.charts.cpu,  d.labels, d.cpu);
-    setChart(this.charts.ram,  d.labels, d.ram);
-    setChart(this.charts.disk, d.labels, d.diskRead, d.diskWrite);
-    setChart(this.charts.net,  d.labels, d.netRx, d.netTx);
+    if (showMinMax) {
+      setChart(this.charts.cpu,  d.labels, d.cpuMax, d.cpu, d.cpuMin);
+      setChart(this.charts.ram,  d.labels, d.ramMax, d.ram, d.ramMin);
+      // Disk: dla odczytu mamy tylko avg (min/max replikowane z avg w backendzie), dla zapisu mamy min/max
+      setChart(this.charts.disk, d.labels, 
+        d.diskRead, d.diskRead, d.diskRead,  // Odczyt: min=max=avg (brak min/max w backendzie)
+        d.diskWriteMax, d.diskWrite, d.diskWriteMin  // Zapis: min/max z backendu
+      );
+      // Net: mamy min/max dla RX i TX
+      setChart(this.charts.net, d.labels, 
+        d.netRxMax, d.netRx, d.netRxMin,
+        d.netTxMax, d.netTx, d.netTxMin
+      );
+    } else {
+      setChart(this.charts.cpu,  d.labels, d.cpu);
+      setChart(this.charts.ram,  d.labels, d.ram);
+      setChart(this.charts.disk, d.labels, d.diskRead, d.diskWrite);
+      setChart(this.charts.net,  d.labels, d.netRx, d.netTx);
+    }
   },
 
   _renderContainers(containers) {
@@ -577,7 +707,7 @@ const HistoryMetrics = {
       const ramData   = pts.map(p => raw ? (p.mem_used || 0) : (p.mem_used_avg || 0));
 
       const mkChart = (id, ds, fmt) => ChartFactory.create(id, ds, fmt);
-      mkChart(cpuId, [{ label: 'CPU %', borderColor: C.accent, data: cpuData }], v => `${v.toFixed(1)}%`);
+      mkChart(cpuId, [{ label: 'CPU %', borderColor: C.accent, data: cpuData }], v => `${v.toFixed(2)}%`);
       const ramChart = mkChart(ramId, [{ label: 'RAM', borderColor: C.blue }], v => fmtBytes(v));
       if (ramChart) {
         ramChart.data.labels = labels;
@@ -713,6 +843,7 @@ const ContainersView = {
     if (status === 'running') {
       return `
         <div class="action-btns">
+          <button class="act-btn act-update"  data-action="update"  title="Aktualizuj">⬆ Update</button>
           <button class="act-btn act-restart" data-action="restart" title="Restart">↺ Restart</button>
           <button class="act-btn act-stop"    data-action="stop"    title="Zatrzymaj">■ Stop</button>
           <button class="act-btn act-pause"   data-action="pause"   title="Wstrzymaj">⏸ Pause</button>
@@ -722,6 +853,7 @@ const ContainersView = {
     if (status === 'paused') {
       return `
         <div class="action-btns">
+          <button class="act-btn act-update"  data-action="update"  title="Aktualizuj">⬆ Update</button>
           <button class="act-btn act-unpause" data-action="unpause" title="Wznów">▶ Unpause</button>
           <button class="act-btn act-stop"    data-action="stop"    title="Zatrzymaj">■ Stop</button>
           <button class="act-btn act-remove"  data-action="remove"  title="Usuń">✕ Remove</button>
@@ -739,8 +871,14 @@ const ContainersView = {
     const uuid = this._serverUUID;
     if (!uuid) return;
 
-    const confirmActions = ['remove'];
-    if (confirmActions.includes(action) && !confirm(`Czy na pewno chcesz wykonać akcję "${action}" na kontenerze ${c.name}?`)) return;
+    const confirmActions = ['remove', 'update'];
+    if (confirmActions.includes(action)) {
+      const messages = {
+        remove: `Czy na pewno chcesz usunąć kontener "${c.name}"?\n\nOperacja jest nieodwracalna.`,
+        update: `Czy na pewno chcesz zaktualizować kontener "${c.name}"?\n\nAkcja pobierze najnowszą wersję obrazu Docker i zrestartuje kontener.`
+      };
+      if (!confirm(messages[action])) return;
+    }
 
     // Disable all action buttons in the row
     const row = btn.closest('tr');
@@ -955,7 +1093,7 @@ const ServerView = {
       const data = await API.get(`/api/servers/${uuid}`);
       this._serverData = data;
       this._renderHeader(data.server);
-      this._loadLive(data.server);
+      await this._loadLive(data.server);
       ContainersView.load(uuid, data.containers || []);
     } catch (e) {
       el('sv-hostname').textContent = 'Błąd ładowania';
@@ -994,8 +1132,8 @@ const ServerView = {
     ).join('');
   },
 
-  _loadLive(server) {
-    LiveMetrics.init(server);
+  async _loadLive(server) {
+    await LiveMetrics.init(server, server.uuid);
 
     const sseStatus = document.getElementById('live-sse-status');
 

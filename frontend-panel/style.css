@@ -640,6 +640,26 @@ button { cursor: pointer; font-family: inherit; }
   color: var(--text3);
   font-variant-numeric: tabular-nums;
 }
+.metric-io-values {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.metric-io-item {
+  font-size: 16px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-io-down {
+  color: var(--green);
+}
+
+.metric-io-up {
+  color: var(--red);
+}
 
 /* ═══════════════════════════════════════════════
    CHARTS
@@ -925,6 +945,9 @@ button { cursor: pointer; font-family: inherit; }
 
 .act-restart  { background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.3); color: var(--blue); }
 .act-restart:hover:not(:disabled) { background: rgba(56,189,248,0.22); }
+
+.act-update   { background: rgba(139,92,246,0.12); border-color: rgba(139,92,246,0.3); color: #8b5cf6; }
+.act-update:hover:not(:disabled)  { background: rgba(139,92,246,0.22); }
 
 .act-pause    { background: var(--yellow-dim); border-color: rgba(245,158,11,0.3); color: var(--yellow); }
 .act-pause:hover:not(:disabled)   { background: rgba(245,158,11,0.22); }
