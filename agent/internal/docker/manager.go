@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -201,62 +200,48 @@ func (m *ContainerManager) CheckForUpdates(ctx context.Context, containerID stri
 }
 
 func (m *ContainerManager) UpdateContainer(ctx context.Context, containerID string) ([]UpdateResult, error) {
-	// Pobierz informacje o kontenerze przez API
 	inspect, err := m.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
 
 	containerName := strings.TrimPrefix(inspect.Container.Name, "/")
-	project := ""
-	workingDir := ""
 	imageName := ""
 
 	if inspect.Container.Config != nil {
-		if inspect.Container.Config.Labels != nil {
-			project = strings.TrimSpace(inspect.Container.Config.Labels["com.docker.compose.project"])
-			workingDir = strings.TrimSpace(inspect.Container.Config.Labels["com.docker.compose.project.working_dir"])
-		}
 		imageName = strings.TrimSpace(inspect.Container.Config.Image)
-	}
-
-	if project != "" {
-		// Dla projektów compose używamy CLI (brak API do compose)
-		cmd := exec.Command("docker", "compose", "-p", project, "pull")
-		if workingDir != "" {
-			cmd.Dir = workingDir
-		}
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return []UpdateResult{{Container: containerName, Success: false, Message: fmt.Sprintf("failed to pull: %s", output)}}, nil
-		}
-
-		cmd = exec.Command("docker", "compose", "-p", project, "up", "-d", "--force-recreate")
-		if workingDir != "" {
-			cmd.Dir = workingDir
-		}
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return []UpdateResult{{Container: containerName, Success: false, Message: fmt.Sprintf("failed to recreate: %s", output)}}, nil
-		}
-
-		return []UpdateResult{{Container: containerName, Success: true, Message: "Container updated via compose"}}, nil
 	}
 
 	result := []UpdateResult{{Container: containerName}}
 
-	// Pull image via API
+	if imageName == "" {
+		result[0].Success = false
+		result[0].Message = "container image is empty"
+		return result, nil
+	}
+
 	pullResp, err := m.cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
 	if err != nil {
 		result[0].Success = false
 		result[0].Message = fmt.Sprintf("failed to pull image: %v", err)
 		return result, nil
 	}
-	// Consume pull stream
 	_, _ = io.Copy(io.Discard, pullResp)
 	pullResp.Close()
 
-	// Stop container via API
+	imageInspect, err := m.cli.ImageInspect(ctx, imageName) // placeholder
+	if err != nil {
+		result[0].Success = false
+		result[0].Message = fmt.Sprintf("failed to inspect pulled image: %v", err)
+		return result, nil
+	}
+
+	if imageInspect.ID == inspect.Container.Image {
+		result[0].Success = true
+		result[0].Message = "Container is already up to date"
+		return result, nil
+	}
+
 	stopOptions := client.ContainerStopOptions{
 		Timeout: func() *int { t := 10; return &t }(),
 	}
@@ -267,7 +252,6 @@ func (m *ContainerManager) UpdateContainer(ctx context.Context, containerID stri
 		return result, nil
 	}
 
-	// Remove container via API
 	removeOptions := client.ContainerRemoveOptions{
 		Force: true,
 	}
@@ -278,8 +262,6 @@ func (m *ContainerManager) UpdateContainer(ctx context.Context, containerID stri
 		return result, nil
 	}
 
-	// Create new container via API
-	// Pobierz konfigurację z inspect
 	config := inspect.Container.Config
 	hostConfig := inspect.Container.HostConfig
 
@@ -296,7 +278,6 @@ func (m *ContainerManager) UpdateContainer(ctx context.Context, containerID stri
 		return result, nil
 	}
 
-	// Start container via API
 	startOptions := client.ContainerStartOptions{}
 	_, err = m.cli.ContainerStart(ctx, createResp.ID, startOptions)
 	if err != nil {
@@ -310,7 +291,7 @@ func (m *ContainerManager) UpdateContainer(ctx context.Context, containerID stri
 	return result, nil
 }
 
-func (m *ContainerManager) CheckComposeUpdates(ctx context.Context, projectName, workingDir string) ([]UpdateInfo, error) {
+func (m *ContainerManager) CheckComposeUpdates(ctx context.Context, projectName string) ([]UpdateInfo, error) {
 	// ═══════════════════════════════════════════════════════════
 	// ZAMIAST: docker compose config --images
 	// UŻYWAMY: API do znalezienia kontenerów w projekcie
@@ -500,30 +481,123 @@ func (m *ContainerManager) cacheRemoteDigest(image, digest, errMsg string) {
 	m.cacheMu.Unlock()
 }
 
-func (m *ContainerManager) UpdateComposeGroup(ctx context.Context, projectName, workingDir string) ([]UpdateResult, error) {
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-p", projectName, "pull")
-	if workingDir != "" {
-		cmd.Dir = workingDir
-	}
-	output, err := cmd.CombinedOutput()
+func (m *ContainerManager) UpdateComposeGroup(ctx context.Context, projectName string) ([]UpdateResult, error) {
+	filterArgs := client.Filters{}
+	filterArgs = filterArgs.Add("label", fmt.Sprintf("com.docker.compose.project=%s", projectName))
+
+	containers, err := m.cli.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: filterArgs,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to pull images: %w\n%s", err, output)
+		return nil, fmt.Errorf("failed to list containers for project %s: %w", projectName, err)
 	}
 
-	cmd = exec.CommandContext(ctx, "docker", "compose", "-p", projectName, "up", "-d")
-	if workingDir != "" {
-		cmd.Dir = workingDir
-	}
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("failed to recreate containers: %w\n%s", err, output)
+	if len(containers.Items) == 0 {
+		return []UpdateResult{{
+			Container: projectName,
+			Success:   false,
+			Message:   "no containers found in project",
+		}}, nil
 	}
 
-	return []UpdateResult{{
-		Container: projectName,
-		Success:   true,
-		Message:   "Compose group updated successfully",
-	}}, nil
+	var results []UpdateResult
+	var mu sync.Mutex
+
+	var wg sync.WaitGroup
+	pullResults := make(map[string]error)
+
+	for _, container := range containers.Items {
+		wg.Add(1)
+		go func(cID, cImage string) {
+			defer wg.Done()
+			if cImage == "" {
+				return
+			}
+			pullResp, pullErr := m.cli.ImagePull(ctx, cImage, client.ImagePullOptions{})
+			if pullErr != nil {
+				mu.Lock()
+				pullResults[cID] = pullErr
+				mu.Unlock()
+				return
+			}
+			defer pullResp.Close()
+			_, _ = io.Copy(io.Discard, pullResp)
+		}(container.ID, container.Image)
+	}
+	wg.Wait()
+
+	for _, c := range containers.Items {
+		inspect, err := m.cli.ContainerInspect(ctx, c.ID, client.ContainerInspectOptions{})
+		if err != nil {
+			results = append(results, UpdateResult{Container: strings.TrimPrefix(c.Names[0], "/"), Success: false, Message: fmt.Sprintf("failed to inspect container: %v", err)})
+			continue
+		}
+		
+		containerName := strings.TrimPrefix(inspect.Container.Name, "/")
+		imageName := ""
+		if inspect.Container.Config != nil {
+			imageName = strings.TrimSpace(inspect.Container.Config.Image)
+		}
+		if imageName == "" {
+			results = append(results, UpdateResult{Container: containerName, Success: false, Message: "container image is empty"})
+			continue
+		}
+
+		if pullErr, ok := pullResults[c.ID]; ok && pullErr != nil {
+			results = append(results, UpdateResult{Container: containerName, Success: false, Message: fmt.Sprintf("failed to pull image: %v", pullErr)})
+			continue
+		}
+
+		imageInspect, err := m.cli.ImageInspect(ctx, imageName) // placeholder
+		if err != nil {
+			results = append(results, UpdateResult{Container: containerName, Success: false, Message: fmt.Sprintf("failed to inspect pulled image: %v", err)})
+			continue
+		}
+
+		if imageInspect.ID == inspect.Container.Image {
+			results = append(results, UpdateResult{Container: containerName, Success: true, Message: "Container is already up to date"})
+			continue
+		}
+
+		stopOptions := client.ContainerStopOptions{
+			Timeout: func() *int { t := 10; return &t }(),
+		}
+		_, err = m.cli.ContainerStop(ctx, c.ID, stopOptions)
+		if err != nil {
+			results = append(results, UpdateResult{Container: containerName, Success: false, Message: fmt.Sprintf("failed to stop: %v", err)})
+			continue
+		}
+
+		removeOptions := client.ContainerRemoveOptions{Force: true}
+		_, err = m.cli.ContainerRemove(ctx, c.ID, removeOptions)
+		if err != nil {
+			results = append(results, UpdateResult{Container: containerName, Success: false, Message: fmt.Sprintf("failed to remove: %v", err)})
+			continue
+		}
+
+		createOptions := client.ContainerCreateOptions{
+			Config:     inspect.Container.Config,
+			HostConfig: inspect.Container.HostConfig,
+			Name:       containerName,
+		}
+		createResp, err := m.cli.ContainerCreate(ctx, createOptions)
+		if err != nil {
+			results = append(results, UpdateResult{Container: containerName, Success: false, Message: fmt.Sprintf("failed to recreate: %v", err)})
+			continue
+		}
+
+		startOptions := client.ContainerStartOptions{}
+		_, err = m.cli.ContainerStart(ctx, createResp.ID, startOptions)
+		if err != nil {
+			results = append(results, UpdateResult{Container: containerName, Success: false, Message: fmt.Sprintf("failed to start: %v", err)})
+			continue
+		}
+
+		results = append(results, UpdateResult{Container: containerName, Success: true, Message: "Container updated successfully"})
+	}
+
+	return results, nil
 }
 
 func normalizeImageRef(image string) string {
@@ -637,4 +711,77 @@ func FindContainerByName(ctx context.Context, cli *client.Client, name string) (
 	}
 
 	return "", fmt.Errorf("container not found: %s", name)
+}
+
+func (m *ContainerManager) StopComposeGroup(ctx context.Context, projectName string) error {
+	filterArgs := client.Filters{}
+	filterArgs = filterArgs.Add("label", fmt.Sprintf("com.docker.compose.project=%s", projectName))
+
+	containers, err := m.cli.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: filterArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list containers for project %s: %w", projectName, err)
+	}
+
+	var firstErr error
+	for _, c := range containers.Items {
+		stopOptions := client.ContainerStopOptions{
+			Timeout: func() *int { t := 10; return &t }(),
+		}
+		_, err := m.cli.ContainerStop(ctx, c.ID, stopOptions)
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("failed to stop container %s: %w", c.ID, err)
+		}
+	}
+	return firstErr
+}
+
+func (m *ContainerManager) StartComposeGroup(ctx context.Context, projectName string) error {
+	filterArgs := client.Filters{}
+	filterArgs = filterArgs.Add("label", fmt.Sprintf("com.docker.compose.project=%s", projectName))
+
+	containers, err := m.cli.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: filterArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list containers for project %s: %w", projectName, err)
+	}
+
+	var firstErr error
+	for _, c := range containers.Items {
+		startOptions := client.ContainerStartOptions{}
+		_, err := m.cli.ContainerStart(ctx, c.ID, startOptions)
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("failed to start container %s: %w", c.ID, err)
+		}
+	}
+	return firstErr
+}
+
+func (m *ContainerManager) RestartComposeGroup(ctx context.Context, projectName string) error {
+	filterArgs := client.Filters{}
+	filterArgs = filterArgs.Add("label", fmt.Sprintf("com.docker.compose.project=%s", projectName))
+
+	containers, err := m.cli.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: filterArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list containers for project %s: %w", projectName, err)
+	}
+
+	var firstErr error
+	for _, c := range containers.Items {
+		restartOptions := client.ContainerRestartOptions{
+			Timeout: func() *int { t := 10; return &t }(),
+		}
+		_, err := m.cli.ContainerRestart(ctx, c.ID, restartOptions)
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("failed to restart container %s: %w", c.ID, err)
+		}
+	}
+	return firstErr
 }

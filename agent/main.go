@@ -67,6 +67,51 @@ func main() {
 		runContainerCmd(flag.Args()[1:], "restart")
 	case "check-updates":
 		runCheckUpdates(flag.Args()[1:])
+	case "compose-stop":
+		if len(flag.Args()) < 2 {
+			fmt.Println("Usage: agent compose-stop <project>")
+			os.Exit(1)
+		}
+		dockerCli, err := docker.NewDockerClient()
+		if err != nil {
+			log.Fatalf("Failed to create Docker client: %v", err)
+		}
+		err = runStopComposeGroup(context.Background(), dockerCli, flag.Args()[1])
+		if err != nil {
+			log.Fatalf("Failed to stop project %s: %v", flag.Args()[1], err)
+		}
+		fmt.Printf("Project %s stopped\n", flag.Args()[1])
+
+	case "compose-start":
+		if len(flag.Args()) < 2 {
+			fmt.Println("Usage: agent compose-start <project>")
+			os.Exit(1)
+		}
+		dockerCli, err := docker.NewDockerClient()
+		if err != nil {
+			log.Fatalf("Failed to create Docker client: %v", err)
+		}
+		err = runStartComposeGroup(context.Background(), dockerCli, flag.Args()[1])
+		if err != nil {
+			log.Fatalf("Failed to start project %s: %v", flag.Args()[1], err)
+		}
+		fmt.Printf("Project %s started\n", flag.Args()[1])
+
+	case "compose-restart":
+		if len(flag.Args()) < 2 {
+			fmt.Println("Usage: agent compose-restart <project>")
+			os.Exit(1)
+		}
+		dockerCli, err := docker.NewDockerClient()
+		if err != nil {
+			log.Fatalf("Failed to create Docker client: %v", err)
+		}
+		err = runRestartComposeGroup(context.Background(), dockerCli, flag.Args()[1])
+		if err != nil {
+			log.Fatalf("Failed to restart project %s: %v", flag.Args()[1], err)
+		}
+		fmt.Printf("Project %s restarted\n", flag.Args()[1])
+
 	case "update":
 		runUpdate(flag.Args()[1:])
 	default:
@@ -357,6 +402,45 @@ func handleWebSocketCommand(ctx context.Context, wsClient *websocket.Client, doc
 			}()}
 		}
 
+	case "compose-stop":
+		if cmd.Target == "" {
+			result = map[string]interface{}{"error": "target is required"}
+		} else {
+			err := runStopComposeGroup(ctx, dockerCli, cmd.Target)
+			result = map[string]interface{}{"success": err == nil, "error": func() string {
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			}()}
+		}
+
+	case "compose-start":
+		if cmd.Target == "" {
+			result = map[string]interface{}{"error": "target is required"}
+		} else {
+			err := runStartComposeGroup(ctx, dockerCli, cmd.Target)
+			result = map[string]interface{}{"success": err == nil, "error": func() string {
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			}()}
+		}
+
+	case "compose-restart":
+		if cmd.Target == "" {
+			result = map[string]interface{}{"error": "target is required"}
+		} else {
+			err := runRestartComposeGroup(ctx, dockerCli, cmd.Target)
+			result = map[string]interface{}{"success": err == nil, "error": func() string {
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			}()}
+		}
+
 	case "check-updates":
 		updates, err := runCheckUpdatesForTarget(ctx, dockerCli, cmd.Target)
 		result = map[string]interface{}{"updates": updates, "error": func() string {
@@ -430,6 +514,21 @@ func runRestartContainer(ctx context.Context, dockerCli *client.Client, containe
 	return manager.RestartContainer(ctx, containerID)
 }
 
+func runStopComposeGroup(ctx context.Context, dockerCli *client.Client, projectName string) error {
+	manager := docker.NewContainerManager(dockerCli)
+	return manager.StopComposeGroup(ctx, projectName)
+}
+
+func runStartComposeGroup(ctx context.Context, dockerCli *client.Client, projectName string) error {
+	manager := docker.NewContainerManager(dockerCli)
+	return manager.StartComposeGroup(ctx, projectName)
+}
+
+func runRestartComposeGroup(ctx context.Context, dockerCli *client.Client, projectName string) error {
+	manager := docker.NewContainerManager(dockerCli)
+	return manager.RestartComposeGroup(ctx, projectName)
+}
+
 func runCheckUpdatesForTarget(ctx context.Context, dockerCli *client.Client, target string) ([]interface{}, error) {
 	manager := docker.NewContainerManager(dockerCli)
 
@@ -443,16 +542,7 @@ func runCheckUpdatesForTarget(ctx context.Context, dockerCli *client.Client, tar
 			return convertUpdates(updates), nil
 		}
 
-		workingDir := ""
-		metrics, _ := docker.CollectContainerMetrics(ctx, dockerCli)
-		for _, g := range metrics.ComposeGroups {
-			if g.Project == target || g.Name == target {
-				workingDir = g.WorkingDir
-				break
-			}
-		}
-
-		updates, err := manager.CheckComposeUpdates(ctx, target, workingDir)
+		updates, err := manager.CheckComposeUpdates(ctx, target)
 		if err != nil {
 			return nil, err
 		}
@@ -468,7 +558,7 @@ func runUpdateTarget(ctx context.Context, dockerCli *client.Client, target strin
 	metrics, _ := docker.CollectContainerMetrics(ctx, dockerCli)
 	for _, g := range metrics.ComposeGroups {
 		if g.Project == target || g.Name == target {
-			results, err := manager.UpdateComposeGroup(ctx, target, g.WorkingDir)
+			results, err := manager.UpdateComposeGroup(ctx, target)
 			if err != nil {
 				return nil, err
 			}
@@ -613,8 +703,7 @@ func runCheckUpdates(args []string) {
 				defer wg.Done()
 				groupLimiter <- struct{}{}
 				defer func() { <-groupLimiter }()
-				wd := getWorkingDirFromGroup(g)
-				updates, err := manager.CheckComposeUpdates(ctx, g.Project, wd)
+				updates, err := manager.CheckComposeUpdates(ctx, g.Project)
 				results <- groupResult{name: g.Name, updates: updates, err: err}
 			}(group)
 		}
@@ -728,22 +817,9 @@ func runCheckUpdates(args []string) {
 	}
 
 	project := target
-	workingDir := ""
-	metrics, err := docker.CollectContainerMetrics(ctx, dockerCli)
-	if err == nil {
-		for _, g := range metrics.ComposeGroups {
-			if g.Project == project || g.Name == project {
-				for _, c := range g.Containers {
-					wd, _ := c.Labels["com.docker.compose.project.working_dir"]
-					workingDir = wd
-					break
-				}
-				break
-			}
-		}
-	}
+	_, _ = docker.CollectContainerMetrics(ctx, dockerCli)
 
-	updates, err := manager.CheckComposeUpdates(ctx, project, workingDir)
+	updates, err := manager.CheckComposeUpdates(ctx, project)
 	if err != nil {
 		log.Fatalf("Failed to check updates: %v", err)
 	}
@@ -777,7 +853,7 @@ func runUpdate(args []string) {
 			// EXACT match na project name
 			if g.Project == target || g.Name == target {
 				fmt.Printf("Updating compose project: %s\n", target)
-				results, err := manager.UpdateComposeGroup(ctx, target, g.WorkingDir)
+				results, err := manager.UpdateComposeGroup(ctx, target)
 				if err != nil {
 					log.Fatalf("Failed to update compose group: %v", err)
 				}
