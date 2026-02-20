@@ -19,8 +19,8 @@ interface RangeDropdownProps {
 
 const GROUPS: { label: string; items: { value: MetricRange; label: string }[] }[] = [
   {
-    label: 'Live',
-    items: [{ value: '1m', label: 'Live (1m)' }],
+    label: 'Na żywo',
+    items: [{ value: '1m', label: '1 minuta (Na żywo)' }],
   },
   {
     label: 'Minuty',
@@ -52,17 +52,12 @@ const GROUPS: { label: string; items: { value: MetricRange; label: string }[] }[
 export function RangeDropdown({ value, onChange }: RangeDropdownProps) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as MetricRange)}>
-      <SelectTrigger className="w-40">
+      <SelectTrigger className="w-44">
         <SelectValue>
           {value === '1m' ? (
             <span className="flex items-center gap-2">
-              <Badge
-                variant="default"
-                className="bg-emerald-600 text-[10px] px-1.5 py-0"
-              >
-                LIVE
-              </Badge>
-              1m
+              1 minuta (Na żywo)
+              <span className="inline-block size-2 rounded-full bg-red-500 animate-pulse" />
             </span>
           ) : (
             GROUPS.flatMap((g) => g.items).find((i) => i.value === value)?.label
@@ -77,8 +72,8 @@ export function RangeDropdown({ value, onChange }: RangeDropdownProps) {
               <SelectItem key={item.value} value={item.value}>
                 {item.value === '1m' ? (
                   <span className="flex items-center gap-2">
-                    <span className="inline-block size-2 rounded-full bg-emerald-400 animate-pulse" />
                     {item.label}
+                    <span className="inline-block size-2 rounded-full bg-red-500 animate-pulse" />
                   </span>
                 ) : (
                   item.label

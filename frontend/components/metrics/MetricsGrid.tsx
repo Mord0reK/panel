@@ -88,15 +88,15 @@ export function MetricsGrid({ uuid }: MetricsGridProps) {
   return (
     <div className="space-y-4">
       {/* Header — dropdown + status */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-5">
         <RangeDropdown value={range} onChange={handleRangeChange} />
 
         {isLive && (
           <div className="flex items-center gap-2 text-xs text-zinc-500">
             {connected ? (
               <>
-                <span className="inline-block size-2 rounded-full bg-emerald-400 animate-pulse" />
-                Live
+                <span className="inline-block size-2 rounded-full bg-red-500 animate-pulse" />
+                Na żywo
               </>
             ) : error ? (
               <>
@@ -105,7 +105,12 @@ export function MetricsGrid({ uuid }: MetricsGridProps) {
               </>
             ) : (
               <>
-                <span className="inline-block size-2 rounded-full bg-yellow-400 animate-pulse" />
+                <span role="status" aria-label="Łączenie" className="inline-flex items-center">
+                  <svg className="animate-spin h-3 w-3 text-yellow-400" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                  </svg>
+                </span>
                 Łączenie…
               </>
             )}

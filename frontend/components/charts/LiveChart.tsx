@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useMemo } from 'react'
+import { useMemo, useRef, useEffect } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 
@@ -21,19 +21,8 @@ interface LiveChartProps {
 }
 
 // ---------------------------------------------------------------------------
-// Konfiguracja per typ wykresu
+// Helpery formatowania
 // ---------------------------------------------------------------------------
-
-interface ChartConfig {
-  title: string
-  fields: (keyof LiveServerHost)[]
-  seriesNames: string[]
-  colors: string[]
-  tooltipFormatter: (value: number) => string
-  yAxisLabel: string
-  yMin?: number
-  yMax?: number
-}
 
 function fmtBytes(v: number): string {
   if (!isFinite(v) || v < 0) return '0 B'
@@ -55,42 +44,56 @@ function fmtBytesPerSec(v: number): string {
   return `${(v / (k * k * k)).toFixed(2)} GB/s`
 }
 
+// ---------------------------------------------------------------------------
+// Konfiguracja per typ wykresu
+// ---------------------------------------------------------------------------
+
+interface ChartConfig {
+  title: string
+  fields: (keyof LiveServerHost)[]
+  seriesNames: string[]
+  colors: string[]
+  tooltipFormatter: (value: number) => string
+  yAxisFormatter: (value: number) => string
+  yMin?: number
+  yMax?: number
+}
+
 const CHART_CONFIGS: Record<LiveChartType, ChartConfig> = {
   cpu: {
-    title: 'CPU',
+    title: 'Wykorzystanie CPU',
     fields: ['cpu'],
     seriesNames: ['CPU'],
     colors: ['#60a5fa'],
     tooltipFormatter: (v) => `${v.toFixed(2)}%`,
-    yAxisLabel: '%',
+    yAxisFormatter: (v) => `${v}%`,
     yMin: 0,
-    yMax: 100,
   },
   ram: {
-    title: 'RAM',
+    title: 'Wykorzystanie pamięci RAM',
     fields: ['mem_used'],
     seriesNames: ['Użyta pamięć'],
-    colors: ['#a78bfa'],
+    colors: ['#31db42'],
     tooltipFormatter: fmtBytes,
-    yAxisLabel: '',
+    yAxisFormatter: fmtBytes,
     yMin: 0,
   },
   disk: {
-    title: 'Dysk I/O',
+    title: 'Przepustowość dysku (I/O)',
     fields: ['disk_read_bytes_per_sec', 'disk_write_bytes_per_sec'],
     seriesNames: ['Odczyt', 'Zapis'],
     colors: ['#34d399', '#f87171'],
     tooltipFormatter: fmtBytesPerSec,
-    yAxisLabel: '',
+    yAxisFormatter: fmtBytesPerSec,
     yMin: 0,
   },
   net: {
     title: 'Sieć',
     fields: ['net_rx_bytes_per_sec', 'net_tx_bytes_per_sec'],
-    seriesNames: ['RX', 'TX'],
+    seriesNames: ['Odebrane', 'Wysłane'],
     colors: ['#38bdf8', '#fb923c'],
     tooltipFormatter: fmtBytesPerSec,
-    yAxisLabel: '',
+    yAxisFormatter: fmtBytesPerSec,
     yMin: 0,
   },
 }
@@ -100,24 +103,55 @@ const CHART_CONFIGS: Record<LiveChartType, ChartConfig> = {
 // ---------------------------------------------------------------------------
 
 export function LiveChart({ points, type }: LiveChartProps) {
-  const chartRef = useRef<ReactECharts>(null)
   const config = CHART_CONFIGS[type]
+  const showLegend = config.fields.length > 1
 
-  // Stabilna ref na tooltip formatter
-  const tooltipFmtRef = useRef(config.tooltipFormatter)
-  tooltipFmtRef.current = config.tooltipFormatter
+  const { tooltipFormatter, yAxisFormatter } = config
 
-  // Inicjalne opcje — ustawiane raz przy mount, NIGDY nie zmieniane przez props
-  const initialOption = useMemo<EChartsOption>(() => {
-    const showLegend = config.fields.length > 1
+  // Śledzi czy animacja wejścia już się odbyła.
+  // Zapobiega restartu 500ms animacji gdy nowy punkt pojawi się
+  // zanim poprzednia animacja dobiegnie końca.
+  const hasAnimatedRef = useRef(false)
+  const hasPoints = points.length > 0
+
+  useEffect(() => {
+    if (!hasPoints) {
+      // Dane wyczyszczone (zmiana serwera) — pozwól na nową animację
+      hasAnimatedRef.current = false
+    } else {
+      // Po pierwszym renderze z danymi oznacz animację jako wykonaną
+      hasAnimatedRef.current = true
+    }
+  }, [hasPoints])
+
+  // useMemo oblicza pełną opcję przy każdej zmianie points/type
+  const option = useMemo<EChartsOption>(() => {
+    // Pokazuj ostatnie 60 punktów — bufor trzyma 65, 5 extra daje płynniejszą animację scrollowania
+    const displayPts = points.slice(-60)
+    const timestamps = displayPts.map((p) => formatTimestamp(p.timestamp, '1m'))
+
+    // Animuj 500ms tylko przy pierwszym pojawieniu się danych.
+    // hasAnimatedRef.current jest aktualizowany przez useEffect po renderze,
+    // więc pierwszy render z danymi ma shouldAnimate=true, każdy kolejny false.
+    const shouldAnimate = hasPoints && !hasAnimatedRef.current
+
     return {
       backgroundColor: 'transparent',
-      grid: { top: 36, right: 16, bottom: 28, left: 56 },
+      animation: true,
+      animationDuration: shouldAnimate ? 500 : 0,
+      animationEasing: 'cubicOut',
+      animationDurationUpdate: 0,
+      grid: {
+        top: showLegend ? 44 : 36,
+        right: 16,
+        bottom: 32,
+        left: 72,
+      },
       title: {
         text: config.title,
-        textStyle: { color: '#e4e4e7', fontSize: 14, fontWeight: 500 },
+        textStyle: { color: '#e4e4e7', fontSize: 13, fontWeight: 500 },
         left: 8,
-        top: 4,
+        top: 6,
       },
       tooltip: {
         trigger: 'axis',
@@ -131,9 +165,9 @@ export function LiveChart({ points, type }: LiveChartProps) {
             axisValue: string
           }[]
           if (!Array.isArray(list) || list.length === 0) return ''
-          let html = `<div style="margin-bottom:4px">${list[0].axisValue}</div>`
+          let html = `<div style="margin-bottom:4px;color:#a1a1aa">${list[0].axisValue}</div>`
           for (const item of list) {
-            html += `<div>${item.seriesName}: <b>${tooltipFmtRef.current(item.value)}</b></div>`
+            html += `<div>${item.seriesName}: <b>${tooltipFormatter(item.value)}</b></div>`
           }
           return html
         },
@@ -142,16 +176,22 @@ export function LiveChart({ points, type }: LiveChartProps) {
         ? {
             show: true,
             textStyle: { color: '#a1a1aa', fontSize: 11 },
-            top: 4,
+            top: 6,
             right: 16,
           }
         : { show: false },
       xAxis: {
         type: 'category',
-        data: [] as string[],
-        axisLabel: { color: '#71717a', fontSize: 10 },
+        data: timestamps,
+        axisLabel: {
+          color: '#71717a',
+          fontSize: 10,
+          interval: 'auto',
+          hideOverlap: true,
+        },
         axisLine: { lineStyle: { color: '#3f3f46' } },
         splitLine: { show: false },
+        boundaryGap: false,
       },
       yAxis: {
         type: 'value',
@@ -160,56 +200,32 @@ export function LiveChart({ points, type }: LiveChartProps) {
         axisLabel: {
           color: '#71717a',
           fontSize: 10,
-          formatter: config.yAxisLabel === '%' ? '{value}%' : undefined,
+          formatter: (value: number) => yAxisFormatter(value),
+          width: 64,
+          overflow: 'truncate',
         },
         splitLine: { lineStyle: { color: '#27272a' } },
       },
-      series: config.fields.map((_, i) => ({
+      series: config.fields.map((field, i) => ({
         name: config.seriesNames[i],
         type: 'line' as const,
-        data: [] as number[],
+        data: displayPts.map((p) => p[field] as number),
         smooth: true,
         showSymbol: false,
         lineStyle: { width: 2 },
-        areaStyle: { opacity: 0.1 },
+        areaStyle: { opacity: 0.12 },
         color: config.colors[i],
+        emphasis: { disabled: true },
       })),
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type])
-
-  // Aktualizuj dane co 1s przez setOption (merge mode — zachowuje yAxis, grid, itp.)
-  useEffect(() => {
-    const instance = chartRef.current?.getEchartsInstance()
-    if (!instance) return
-
-    const timestamps = points.map((p) => formatTimestamp(p.timestamp, '1m'))
-
-    const series = config.fields.map((field, i) => ({
-      name: config.seriesNames[i],
-      type: 'line' as const,
-      data: points.map((p) => p[field] as number),
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { width: 2 },
-      areaStyle: { opacity: 0.1 },
-      color: config.colors[i],
-    }))
-
-    instance.setOption(
-      { xAxis: { data: timestamps }, series },
-      { notMerge: false, lazyUpdate: false },
-    )
-  }, [points, config])
+  }, [points, type, config, showLegend, tooltipFormatter, yAxisFormatter, hasPoints])
 
   return (
     <ReactECharts
-      ref={chartRef}
-      option={initialOption}
-      style={{ width: '100%', height: '200px' }}
+      option={option}
+      style={{ width: '100%', height: '220px' }}
       notMerge={false}
-      lazyUpdate={true}
-      theme="dark"
+      lazyUpdate={false}
     />
   )
 }

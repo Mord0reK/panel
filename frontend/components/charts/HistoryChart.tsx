@@ -26,23 +26,6 @@ interface HistoryChartProps {
 // Konfiguracja per typ wykresu (avg + opcjonalnie min/max area)
 // ---------------------------------------------------------------------------
 
-interface SeriesFieldDef {
-  avg: keyof AggregatedHostMetricPoint
-  min?: keyof AggregatedHostMetricPoint
-  max?: keyof AggregatedHostMetricPoint
-  name: string
-  color: string
-}
-
-interface HistoryChartConfig {
-  title: string
-  series: SeriesFieldDef[]
-  tooltipFormatter: (v: number) => string
-  yAxisLabel: string
-  yMin?: number
-  yMax?: number
-}
-
 function fmtBytes(v: number): string {
   if (!isFinite(v) || v < 0) return '0 B'
   if (v === 0) return '0 B'
@@ -63,25 +46,42 @@ function fmtBytesPerSec(v: number): string {
   return `${(v / (k * k * k)).toFixed(2)} GB/s`
 }
 
+interface SeriesFieldDef {
+  avg: keyof AggregatedHostMetricPoint
+  min?: keyof AggregatedHostMetricPoint
+  max?: keyof AggregatedHostMetricPoint
+  name: string
+  color: string
+}
+
+interface HistoryChartConfig {
+  title: string
+  series: SeriesFieldDef[]
+  tooltipFormatter: (v: number) => string
+  yAxisFormatter?: (v: number) => string
+  yAxisLabel: string
+  yMin?: number
+  yMax?: number
+}
+
 const CONFIGS: Record<HistoryChartType, HistoryChartConfig> = {
   cpu: {
-    title: 'CPU',
+    title: 'Wykorzystanie CPU',
     series: [
       {
         avg: 'cpu_avg',
         min: 'cpu_min',
         max: 'cpu_max',
-        name: 'CPU',
+        name: 'Wykorzystanie CPU',
         color: '#60a5fa',
       },
     ],
     tooltipFormatter: (v) => `${v.toFixed(2)}%`,
     yAxisLabel: '%',
     yMin: 0,
-    yMax: 100,
   },
   ram: {
-    title: 'RAM',
+    title: 'Wykorzystanie pamięci RAM',
     series: [
       {
         avg: 'mem_used_avg',
@@ -92,11 +92,12 @@ const CONFIGS: Record<HistoryChartType, HistoryChartConfig> = {
       },
     ],
     tooltipFormatter: fmtBytes,
+    yAxisFormatter: fmtBytes,
     yAxisLabel: '',
     yMin: 0,
   },
   disk: {
-    title: 'Dysk I/O',
+    title: 'Przepustowość dysku (I/O)',
     series: [
       {
         avg: 'disk_read_bytes_per_sec_avg',
@@ -116,20 +117,20 @@ const CONFIGS: Record<HistoryChartType, HistoryChartConfig> = {
     yMin: 0,
   },
   net: {
-    title: 'Sieć',
+    title: 'Przepustowość sieci (net I/O)',
     series: [
       {
         avg: 'net_rx_bytes_per_sec_avg',
         min: 'net_rx_bytes_per_sec_min',
         max: 'net_rx_bytes_per_sec_max',
-        name: 'RX',
+        name: '↓ Odebrane (RX)',
         color: '#38bdf8',
       },
       {
         avg: 'net_tx_bytes_per_sec_avg',
         min: 'net_tx_bytes_per_sec_min',
         max: 'net_tx_bytes_per_sec_max',
-        name: 'TX',
+        name: '↑ Wysłane (TX)',
         color: '#fb923c',
       },
     ],
