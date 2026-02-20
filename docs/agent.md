@@ -46,8 +46,11 @@ go build -o agent .
 | `info` | Wyświetla statyczne informacje o systemie |
 | `ws` | Uruchamia agenta w trybie WebSocket |
 | `stop <cel>` | Zatrzymuje kontener |
+| `compose-stop <projekt>` | Zatrzymuje projekt compose |
 | `start <cel>` | Uruchamia zatrzymany kontener |
+| `compose-start <projekt>` | Uruchamia projekt compose |
 | `restart <cel>` | Restartuje kontener |
+| `compose-restart <projekt>` | Restartuje projekt compose |
 | `check-updates [cel]` | Sprawdza dostępność aktualizacji obrazów |
 | `update <cel>` | Aktualizuje kontener lub grupę compose |
 
@@ -76,18 +79,23 @@ Zwraca statyczne informacje: hostname, platforma, OS, kernel, architektura, CPU 
 
 Wymaga ustawionego `BACKEND_URL` lub flagi `--backend-url`.
 
-### stop / start / restart
+### stop / start / restart (wraz z wersjami compose-*)
 
 ```bash
 ./agent stop <nazwa-lub-id>
 ./agent start <nazwa-lub-id>
 ./agent restart <nazwa-lub-id>
+
+./agent compose-stop <nazwa-projektu>
+./agent compose-start <nazwa-projektu>
+./agent compose-restart <nazwa-projektu>
 ```
 
 Przykłady:
 ```bash
 ./agent stop nginx
 ./agent restart fb629436cc81
+./agent compose-restart moj-projekt
 ```
 
 ### check-updates
@@ -117,9 +125,10 @@ Algorytm oparty o porównanie digestów obrazów (bez `docker pull --dry-run`).
 
 Priorytet wyszukiwania: najpierw exact match na nazwę projektu compose, potem na nazwę kontenera.
 
-Dla grupy compose wykonuje:
-1. `docker compose pull`
-2. `docker compose up -d`
+Dla grupy compose używa bezpośrednio Docker API, nie wymaga CLI `docker-compose`:
+1. Równoległe pobranie najnowszych obrazów
+2. Porównanie digestów obrazów
+3. Sekwencyjne (Stop → Remove → Create → Start) zrekonstruowanie kontenerów, dla których dostępna jest aktualizacja
 
 ---
 
