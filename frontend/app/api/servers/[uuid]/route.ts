@@ -11,6 +11,20 @@ export async function GET(
   return NextResponse.json(data, { status: res.status })
 }
 
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ uuid: string }> },
+) {
+  const { uuid } = await params
+  const body = await request.json()
+  const res = await backendFetch(`/api/servers/${uuid}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+  const data = await res.json()
+  return NextResponse.json(data, { status: res.status })
+}
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ uuid: string }> },

@@ -45,7 +45,7 @@ func TestStressMetrics(t *testing.T) {
 		go func(agentID int) {
 			defer wg.Done()
 			agentUUID := fmt.Sprintf("agent-%d", agentID)
-			
+
 			// Pre-approve
 			db.Exec("INSERT INTO servers (uuid, hostname, approved) VALUES (?, ?, ?)", agentUUID, agentUUID, true)
 

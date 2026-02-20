@@ -56,7 +56,7 @@ func TestFullIntegration(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&tokenResp)
 	token := tokenResp["token"]
 
-	// 2. Connect Agent
+	// 2. Connect Agent — auto-approved on first connection
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/agent"
 	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
@@ -69,34 +69,19 @@ func TestFullIntegration(t *testing.T) {
 	data, _ := json.Marshal(authMsg)
 	wsConn.WriteMessage(websocket.TextMessage, data)
 
-	// Initial auth response should be approved=false
+	// Initial auth response must be approved=true (auto-approve)
 	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	_, msg, err := wsConn.ReadMessage()
 	require.NoError(t, err)
 	var authResp ws.AuthResponseMessage
 	err = json.Unmarshal(msg, &authResp)
 	require.NoError(t, err)
-	assert.False(t, authResp.Approved)
+	assert.True(t, authResp.Approved)
 	wsConn.SetReadDeadline(time.Time{})
 
 	time.Sleep(100 * time.Millisecond)
 
-	// 3. Approve Server
-	req, _ := http.NewRequest("PUT", ts.URL+"/api/servers/agent-full/approve", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, _ = http.DefaultClient.Do(req)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	// 4. Wait for pushed approval and send metrics on the same connection
-	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
-	_, msg, err = wsConn.ReadMessage()
-	require.NoError(t, err)
-	err = json.Unmarshal(msg, &authResp)
-	require.NoError(t, err)
-	assert.True(t, authResp.Approved)
-	wsConn.SetReadDeadline(time.Time{})
-	time.Sleep(50 * time.Millisecond)
-
+	// 3. Send Metrics (no approval step required — already auto-approved)
 	metricsMsg := ws.AgentMetricsMessage{
 		Type:      ws.MsgTypeMetrics,
 		Timestamp: time.Now().Unix(),
@@ -147,7 +132,7 @@ func TestFullIntegration(t *testing.T) {
 	inserter.Stop()
 
 	// 7. Query History
-	req, _ = http.NewRequest("GET", ts.URL+"/api/metrics/history/servers/agent-full?range=1m", nil)
+	req, _ := http.NewRequest("GET", ts.URL+"/api/metrics/history/servers/agent-full?range=1m", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, _ = http.DefaultClient.Do(req)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)

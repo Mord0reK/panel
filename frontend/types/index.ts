@@ -18,7 +18,11 @@ export interface AuthTokenResponse {
 export interface Server {
   uuid: string
   hostname: string
+  display_name?: string // empty or missing — use hostname as fallback
+  icon?: string         // empty or missing; prefix: "lucide:" or "custom:"
+  status?: 'active' | 'rejected' // defaults to "active" when absent
   approved: boolean
+  online?: boolean      // computed by backend (last_seen < 30s), may be absent in old responses
   cpu_model: string
   cpu_cores: number
   memory_total: number
@@ -44,6 +48,15 @@ export interface Container {
 export interface ServerDetailResponse {
   server: Server
   containers: Container[]
+}
+
+// =============================================================================
+// SERVER ICONS
+// =============================================================================
+
+export interface CustomIcon {
+  name: string // filename e.g. "proxmox.svg"
+  url: string  // public path e.g. "/icons/proxmox.svg"
 }
 
 // =============================================================================

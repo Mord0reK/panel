@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { LayoutDashboardIcon, LogOutIcon } from 'lucide-react'
+import { LayoutDashboardIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
 
 import { ServerNavList } from '@/components/sidebar/ServerNavList'
 import {
@@ -65,6 +65,14 @@ export function AppSidebar() {
       {/* ---------- Footer ---------- */}
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip="Ustawienia">
+              <Link href="/settings/servers">
+                <SettingsIcon className="size-4" />
+                <span>Ustawienia</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton onClick={handleLogout} tooltip="Wyloguj się">
               <LogOutIcon className="size-4" />

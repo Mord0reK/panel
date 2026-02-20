@@ -3,6 +3,7 @@ import type {
   CommandRequest,
   ContainerAction,
   ContainerHistoryResponse,
+  CustomIcon,
   MetricRange,
   Server,
   ServerDetailResponse,
@@ -75,6 +76,18 @@ export const api = {
     return apiFetch<{ success: boolean }>(`/api/servers/${uuid}/approve`, {
       method: 'PUT',
     })
+  },
+
+  patchServer(uuid: string, body: { display_name?: string; icon?: string; status?: 'active' | 'rejected' }) {
+    return apiFetch<Server>(`/api/servers/${uuid}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  },
+
+  getIcons() {
+    return apiFetch<CustomIcon[]>('/api/icons')
   },
 
   deleteServer(uuid: string) {

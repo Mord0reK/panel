@@ -41,7 +41,9 @@ export function ServerNavList() {
     )
   }
 
-  if (servers.length === 0) {
+  const activeServers = servers.filter((s) => (s.status ?? 'active') !== 'rejected')
+
+  if (activeServers.length === 0) {
     return (
       <SidebarMenu>
         <p className="px-3 py-2 text-xs text-muted-foreground">
@@ -53,7 +55,7 @@ export function ServerNavList() {
 
   return (
     <SidebarMenu>
-      {servers.map((server) => (
+      {activeServers.map((server) => (
         <ServerNavItem key={server.uuid} server={server} />
       ))}
     </SidebarMenu>

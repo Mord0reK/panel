@@ -116,6 +116,13 @@ func (h *AgentHub) SetApproved(uuid string, approved bool) bool {
 	return true
 }
 
+// DisconnectAgent closes the active WebSocket connection for the given agent UUID.
+func (h *AgentHub) DisconnectAgent(uuid string) {
+	if agent := h.GetConnection(uuid); agent != nil {
+		h.Unregister <- agent
+	}
+}
+
 func (h *AgentHub) RequestAgent(agentUUID string, action, target string) (json.RawMessage, error) {
 	commandID := uuid.New().String()
 	respCh := make(chan []byte, 1)

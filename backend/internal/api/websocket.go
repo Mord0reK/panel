@@ -99,6 +99,15 @@ func (h *WebSocketHandler) HandleAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	agentConn.SetApproved(server.Approved)
 
+	// Reject connections from servers that have been explicitly rejected by the admin.
+	if server.Status == "rejected" {
+		log.Printf("WebSocket: refusing connection from rejected server %s", authMsg.UUID)
+		respBytes, _ := json.Marshal(ws.AuthResponseMessage{Type: ws.MsgTypeAuthResponse, Approved: false})
+		conn.WriteMessage(websocket.TextMessage, respBytes)
+		conn.Close()
+		return
+	}
+
 	h.hub.Register <- agentConn
 	log.Printf("WebSocket: agent %s registered to hub", authMsg.UUID)
 

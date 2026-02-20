@@ -61,7 +61,7 @@ func main() {
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.Header().Set("Access-Control-Max-Age", "3600")
 
@@ -77,7 +77,7 @@ func main() {
 	// Handle all OPTIONS requests (preflight)
 	r.Methods("OPTIONS").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 		w.WriteHeader(http.StatusOK)
@@ -95,6 +95,7 @@ func main() {
 
 	apiRouter.HandleFunc("/servers", serversHandler.HandleList).Methods("GET")
 	apiRouter.HandleFunc("/servers/{uuid}", serversHandler.HandleGet).Methods("GET")
+	apiRouter.HandleFunc("/servers/{uuid}", serversHandler.HandlePatch).Methods("PATCH")
 	apiRouter.HandleFunc("/servers/{uuid}/approve", serversHandler.HandleApprove).Methods("PUT")
 	apiRouter.HandleFunc("/servers/{uuid}", serversHandler.HandleDelete).Methods("DELETE")
 	apiRouter.HandleFunc("/servers/{uuid}/command", commandsHandler.HandleCommand).Methods("POST")

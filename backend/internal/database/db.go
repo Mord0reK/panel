@@ -41,8 +41,19 @@ func New(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-// RunMigrations executes all SQL files found in the migrations directory
+// RunMigrations executes all SQL files found in the migrations directory.
+// Applied migrations are tracked in the schema_migrations table so each file
+// runs exactly once, making the process idempotent across restarts.
 func RunMigrations(db *sql.DB, migrationsDir string) error {
+	// Bootstrap the tracking table using a direct Exec – this must always run.
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		name       TEXT PRIMARY KEY,
+		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		return fmt.Errorf("failed to create schema_migrations table: %w", err)
+	}
+
 	files, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
@@ -57,18 +68,65 @@ func RunMigrations(db *sql.DB, migrationsDir string) error {
 	sort.Strings(sqlFiles)
 
 	for _, file := range sqlFiles {
+		var exists int
+		if err := db.QueryRow(`SELECT COUNT(1) FROM schema_migrations WHERE name = ?`, file).Scan(&exists); err != nil {
+			return fmt.Errorf("failed to check migration status for %s: %w", file, err)
+		}
+		if exists > 0 {
+			continue // already applied
+		}
+
 		path := filepath.Join(migrationsDir, file)
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read migration file %s: %w", file, err)
 		}
 
-		if err := execWithRetry(db, string(content)); err != nil {
+		if err := execMigration(db, string(content)); err != nil {
 			return fmt.Errorf("failed to execute migration %s: %w", file, err)
+		}
+
+		if _, err := db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, file); err != nil {
+			return fmt.Errorf("failed to record migration %s: %w", file, err)
 		}
 	}
 
 	return nil
+}
+
+// execMigration executes a migration file statement-by-statement, tolerating
+// idempotent errors (duplicate column, table already exists) that occur when
+// a migration was applied before the schema_migrations tracking was introduced.
+func execMigration(db *sql.DB, content string) error {
+	for _, stmt := range strings.Split(content, ";") {
+		stmt = stripLineComments(stmt)
+		if stmt == "" {
+			continue
+		}
+		if err := execWithRetry(db, stmt); err != nil {
+			msg := err.Error()
+			// These errors mean the DDL change was already applied — safe to skip.
+			if strings.Contains(msg, "duplicate column name") ||
+				strings.Contains(msg, "already exists") {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// stripLineComments removes SQL line-comment lines (starting with --) and
+// returns the trimmed result. Inline comments within SQL are not stripped.
+func stripLineComments(sql string) string {
+	var lines []string
+	for _, line := range strings.Split(sql, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed == "" || strings.HasPrefix(trimmed, "--") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 // execWithRetry executes a query with exponential backoff retry for "database is locked" errors

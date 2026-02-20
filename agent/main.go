@@ -223,17 +223,17 @@ func runWebSocket() {
 	}
 
 	if !approved {
-		log.Printf("Server not approved. Waiting for approval from backend...")
-		approved, err = wsClient.WaitForApproval(ctx)
-		if err != nil {
-			log.Printf("Failed while waiting for approval: %v", err)
-			wsClient.Close()
-			os.Exit(1)
+		log.Printf("Server rejected by admin. Retrying in 60 seconds...")
+		wsClient.Close()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(60 * time.Second):
 		}
-		log.Printf("Server approved! Starting metrics...")
-	} else {
-		log.Printf("Server approved! Starting metrics...")
+		runWebSocket()
+		return
 	}
+	log.Printf("Server approved! Starting metrics...")
 
 	dockerCli, err := docker.NewDockerClient()
 	if err != nil {
@@ -279,12 +279,15 @@ func runWebSocket() {
 			}
 
 			if !reApproved {
-				log.Printf("Server not approved after reconnect. Waiting for approval...")
-				reApproved, err = wsClient.WaitForApproval(ctx)
-				if err != nil {
-					log.Printf("Failed while waiting for approval after reconnect: %v", err)
-					continue
+				log.Printf("Server rejected by admin after reconnect. Waiting 60 seconds...")
+				wsClient.Close()
+				select {
+				case <-ctx.Done():
+					wsClient.Close()
+					return
+				case <-time.After(60 * time.Second):
 				}
+				continue
 			}
 			log.Printf("Re-authenticated successfully, resuming metrics...")
 		}

@@ -61,12 +61,12 @@ func TestWebSocketAgentConnect(t *testing.T) {
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Check if server is in DB
+	// Check if server is in DB — newly connected agent is auto-approved
 	var server models.Server
 	srv, err := server.GetByUUID(db, "agent-123")
 	require.NoError(t, err)
 	assert.Equal(t, "test-host", srv.Hostname)
-	assert.False(t, srv.Approved)
+	assert.True(t, srv.Approved)
 
 	// Check Hub
 	err = hub.SendToAgent("agent-123", []byte("test-command"))
@@ -118,7 +118,7 @@ func TestWebSocketMetrics(t *testing.T) {
 	require.NoError(t, err)
 	defer wsConn.Close()
 
-	// Auth (First time)
+	// Auth (First time) — agent is auto-approved on first connection
 	authMsg := ws.AgentAuthMessage{
 		Type: ws.MsgTypeAuth,
 		UUID: "agent-metrics",
@@ -127,33 +127,11 @@ func TestWebSocketMetrics(t *testing.T) {
 	data, _ := json.Marshal(authMsg)
 	wsConn.WriteMessage(websocket.TextMessage, data)
 
-	// Read initial auth response (approved=false)
+	// Read initial auth response (approved=true — auto-approve is now the default)
 	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	_, msg, err := wsConn.ReadMessage()
 	require.NoError(t, err)
 	var authResp ws.AuthResponseMessage
-	err = json.Unmarshal(msg, &authResp)
-	require.NoError(t, err)
-	assert.False(t, authResp.Approved)
-	wsConn.SetReadDeadline(time.Time{})
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Approve server manually
-	var server models.Server
-	err = server.Approve(db, "agent-metrics")
-	require.NoError(t, err)
-
-	// Push approval to connected agent
-	hub.SetApproved("agent-metrics", true)
-	payload, err := json.Marshal(ws.AuthResponseMessage{Type: ws.MsgTypeAuthResponse, Approved: true})
-	require.NoError(t, err)
-	err = hub.SendToAgent("agent-metrics", payload)
-	require.NoError(t, err)
-
-	wsConn.SetReadDeadline(time.Now().Add(1 * time.Second))
-	_, msg, err = wsConn.ReadMessage()
-	require.NoError(t, err)
 	err = json.Unmarshal(msg, &authResp)
 	require.NoError(t, err)
 	assert.True(t, authResp.Approved)
@@ -186,6 +164,7 @@ func TestWebSocketMetrics(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Check LastSeen updated
+	var server models.Server
 	srv, err := server.GetByUUID(db, "agent-metrics")
 	require.NoError(t, err)
 	assert.WithinDuration(t, time.Now(), srv.LastSeen, 2*time.Second)

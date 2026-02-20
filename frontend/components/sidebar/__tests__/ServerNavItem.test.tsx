@@ -99,16 +99,16 @@ describe('ServerNavItem', () => {
     expect(screen.getByText('web-server-01')).toBeInTheDocument()
   })
 
-  it('shows "Oczekuje" badge for unapproved servers', () => {
-    render(<ServerNavItem server={makeServer({ approved: false })} />)
+  it('shows "Offline" badge for offline servers', () => {
+    render(<ServerNavItem server={makeServer({ online: false })} />)
 
-    expect(screen.getByText('Oczekuje')).toBeInTheDocument()
+    expect(screen.getByText('Offline')).toBeInTheDocument()
   })
 
-  it('does not show badge for approved servers', () => {
-    render(<ServerNavItem server={makeServer({ approved: true })} />)
+  it('does not show Offline badge for online servers', () => {
+    render(<ServerNavItem server={makeServer({ online: true })} />)
 
-    expect(screen.queryByText('Oczekuje')).not.toBeInTheDocument()
+    expect(screen.queryByText('Offline')).not.toBeInTheDocument()
   })
 
   it('renders sub-items: Metryki, Logi, Kontenery', () => {

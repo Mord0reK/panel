@@ -112,3 +112,69 @@ func (h *ServersHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
+
+// PatchServerRequest defines editable fields for PATCH /api/servers/:uuid.
+type PatchServerRequest struct {
+	DisplayName *string `json:"display_name"`
+	Icon        *string `json:"icon"`
+	Status      *string `json:"status"`
+}
+
+func (h *ServersHandler) HandlePatch(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	uuid := vars["uuid"]
+
+	var req PatchServerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var serverModel models.Server
+	srv, err := serverModel.GetByUUID(h.db, uuid)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "server not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	displayName := srv.DisplayName
+	icon := srv.Icon
+	status := srv.Status
+
+	if req.DisplayName != nil {
+		displayName = *req.DisplayName
+	}
+	if req.Icon != nil {
+		icon = *req.Icon
+	}
+	if req.Status != nil {
+		if *req.Status != "active" && *req.Status != "rejected" {
+			http.Error(w, "status must be 'active' or 'rejected'", http.StatusBadRequest)
+			return
+		}
+		status = *req.Status
+	}
+
+	if err := serverModel.UpdateMeta(h.db, uuid, displayName, icon, status); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Disconnect active agent when rejected so it stops sending data.
+	if status == "rejected" && h.hub != nil {
+		h.hub.DisconnectAgent(uuid)
+	}
+
+	updated, err := serverModel.GetByUUID(h.db, uuid)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(updated)
+}

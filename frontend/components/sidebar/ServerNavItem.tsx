@@ -7,7 +7,6 @@ import {
   ChevronRightIcon,
   ContainerIcon,
   FileTextIcon,
-  ServerIcon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +22,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from '@/components/ui/sidebar'
+import { ServerIconDisplay } from '@/components/servers/ServerIconDisplay'
 import type { Server } from '@/types'
 
 const SUB_ITEMS = [
@@ -54,6 +54,8 @@ export function ServerNavItem({ server }: ServerNavItemProps) {
   const pathname = usePathname()
   const basePath = `/servers/${server.uuid}`
   const isServerActive = pathname.startsWith(basePath)
+  const displayName = server.display_name || server.hostname
+  const isOffline = !server.online
 
   return (
     <Collapsible asChild defaultOpen={isServerActive} className="group/collapsible">
@@ -61,13 +63,17 @@ export function ServerNavItem({ server }: ServerNavItemProps) {
         <CollapsibleTrigger asChild>
           <SidebarMenuButton
             isActive={isServerActive}
-            tooltip={server.hostname}
+            tooltip={displayName}
+            className={isOffline ? 'opacity-60' : undefined}
           >
-            <ServerIcon className="size-4" />
-            <span className="truncate">{server.hostname}</span>
-            {!server.approved && (
-              <Badge variant="outline" className="ml-auto text-[10px] px-1.5 py-0">
-                Oczekuje
+            <ServerIconDisplay icon={server.icon} />
+            <span className="truncate">{displayName}</span>
+            {isOffline && (
+              <Badge
+                variant="outline"
+                className="ml-auto shrink-0 border-destructive/50 text-destructive text-[10px] px-1.5 py-0"
+              >
+                Offline
               </Badge>
             )}
             <ChevronRightIcon className="ml-auto size-4 shrink-0 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
