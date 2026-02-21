@@ -1,9 +1,6 @@
 # Stage 1: Build
 FROM golang:1.24-alpine AS builder
 
-# Install build dependencies for CGO (required by go-sqlite3)
-RUN apk add --no-cache gcc musl-dev
-
 WORKDIR /app
 
 COPY go.mod go.sum ./
@@ -11,21 +8,17 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux go build -o server ./cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o server ./cmd/server/main.go
 
 # Stage 2: Runtime
-FROM alpine:latest
-
-RUN apk add --no-cache ca-certificates
+FROM scratch
 
 WORKDIR /app
 
-COPY --from=builder /app/server .
-COPY --from=builder /app/migrations ./migrations
+COPY --from=alpine:latest /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# Create data directory for SQLite
-RUN mkdir /data
+COPY --from=builder /app/server .
 
 EXPOSE 8080
 
-ENTRYPOINT ["./server"]
+ENTRYPOINT ["/app/server"]

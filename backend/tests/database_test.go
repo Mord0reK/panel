@@ -19,7 +19,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 	// Run migrations
 	// Assuming the test is run from the backend/ directory or subdirectories
 	// We need to find the migrations directory
-	err = database.RunMigrations(db, "../migrations")
+	err = database.RunMigrations(db)
 	require.NoError(t, err)
 
 	return db

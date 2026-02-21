@@ -1,3 +1,5 @@
+-- +goose Up
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
@@ -16,7 +18,10 @@ CREATE TABLE IF NOT EXISTS servers (
     kernel TEXT,
     architecture TEXT,
     last_seen DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    display_name TEXT,
+    icon TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
 );
 
 CREATE TABLE IF NOT EXISTS containers (
@@ -174,7 +179,28 @@ CREATE TABLE IF NOT EXISTS metrics_12h (
     PRIMARY KEY(agent_uuid, container_id, timestamp),
     FOREIGN KEY(agent_uuid) REFERENCES servers(uuid) ON DELETE CASCADE
 );
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_servers_approved ON servers(approved);
 CREATE INDEX IF NOT EXISTS idx_containers_agent ON containers(agent_uuid);
 CREATE INDEX IF NOT EXISTS idx_events_container ON container_events(agent_uuid, container_id, timestamp);
+
+-- +goose Down
+
+DROP INDEX IF EXISTS idx_events_container;
+DROP INDEX IF EXISTS idx_containers_agent;
+DROP INDEX IF EXISTS idx_servers_approved;
+DROP TABLE IF EXISTS metrics_12h;
+DROP TABLE IF EXISTS metrics_6h;
+DROP TABLE IF EXISTS metrics_1h;
+DROP TABLE IF EXISTS metrics_30m;
+DROP TABLE IF EXISTS metrics_15m;
+DROP TABLE IF EXISTS metrics_5m;
+DROP TABLE IF EXISTS metrics_1m;
+DROP TABLE IF EXISTS metrics_30s;
+DROP TABLE IF EXISTS metrics_15s;
+DROP TABLE IF EXISTS metrics_5s;
+DROP TABLE IF EXISTS container_events;
+DROP TABLE IF EXISTS containers;
+DROP TABLE IF EXISTS servers;
+DROP TABLE IF EXISTS users;
