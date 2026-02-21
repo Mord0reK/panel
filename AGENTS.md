@@ -34,10 +34,7 @@ Backend (Go, WS server) ──► SQLite
 | Sytuacja | Wymagane działanie |
 |----------|--------------------|
 | Jakakolwiek dokumentacja biblioteki / API / frameworka | **Context7 — zawsze, bez wyjątku** |
-| Nie wiem jak wygląda istniejący plik lub funkcja | **Desktop Commander przed napisaniem linii kodu** |
 | Napisałem coś we frontendzie | **Playwright — weryfikacja zanim powiesz że skończone** |
-| Szukam jak coś jest zrobione w projekcie | **Chroma — przeszukaj bazę wiedzy projektu** |
-| Operacje na plikach, terminal, inspekcja systemu | **Desktop Commander** |
 
 **Zakaz zgadywania.** Jeśli nie masz pewności jak wygląda istniejący kod — sprawdź przez Desktop Commander. Jeśli potrzebujesz dokumentacji — użyj Context7. Nigdy nie pisz kodu który może kolidować z tym co już istnieje bez uprzedniego sprawdzenia.
 
