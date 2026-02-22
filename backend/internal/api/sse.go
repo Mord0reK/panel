@@ -57,10 +57,11 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 				CPU      float64 `json:"cpu"`
 				Memory   uint64  `json:"memory"`
 
-				DiskReadBytesPerSec  uint64 `json:"disk_read_bytes_per_sec"`
-				DiskWriteBytesPerSec uint64 `json:"disk_write_bytes_per_sec"`
-				NetRxBytesPerSec     uint64 `json:"net_rx_bytes_per_sec"`
-				NetTxBytesPerSec     uint64 `json:"net_tx_bytes_per_sec"`
+				DiskUsedPercent      float64 `json:"disk_used_percent"`
+				DiskReadBytesPerSec  uint64  `json:"disk_read_bytes_per_sec"`
+				DiskWriteBytesPerSec uint64  `json:"disk_write_bytes_per_sec"`
+				NetRxBytesPerSec     uint64  `json:"net_rx_bytes_per_sec"`
+				NetTxBytesPerSec     uint64  `json:"net_tx_bytes_per_sec"`
 			}
 
 			var liveData []serverLive
@@ -80,6 +81,7 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 					CPU:      host.CPU,
 					Memory:   host.MemUsed,
 
+					DiskUsedPercent:      host.DiskUsedPercent,
 					DiskReadBytesPerSec:  host.DiskReadBytesPerSec,
 					DiskWriteBytesPerSec: host.DiskWriteBytesPerSec,
 					NetRxBytesPerSec:     host.NetRxBytesPerSec,
@@ -122,13 +124,65 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 			if host == nil {
 				continue
 			}
-			containers := h.bufferManager.GetLatestForServerAtTimestamp(uuid, host.Timestamp)
+			containersMap := h.bufferManager.GetLatestForServerAtTimestamp(uuid, host.Timestamp)
+
+			type containerLive struct {
+				ContainerID string  `json:"ContainerID"`
+				Timestamp   int64   `json:"Timestamp"`
+				CPU         float64 `json:"CPU"`
+				MemUsed     uint64  `json:"MemUsed"`
+				MemPercent  float64 `json:"MemPercent"`
+				DiskUsed    uint64  `json:"DiskUsed"`
+				DiskPercent float64 `json:"DiskPercent"`
+				NetRx       uint64  `json:"NetRx"`
+				NetTx       uint64  `json:"NetTx"`
+			}
+
+			containerSlice := make([]containerLive, 0, len(containersMap))
+			for id, p := range containersMap {
+				if id == models.HostMainContainerID {
+					continue
+				}
+				containerSlice = append(containerSlice, containerLive{
+					ContainerID: id,
+					Timestamp:   p.Timestamp,
+					CPU:         p.CPU,
+					MemUsed:     p.MemUsed,
+					MemPercent:  p.MemPercent,
+					DiskUsed:    p.DiskUsed,
+					DiskPercent: p.DiskPercent,
+					NetRx:       p.NetRx,
+					NetTx:       p.NetTx,
+				})
+			}
+
+			type hostLive struct {
+				Timestamp            int64   `json:"Timestamp"`
+				CPU                  float64 `json:"CPU"`
+				MemUsed              uint64  `json:"MemUsed"`
+				MemPercent           float64 `json:"MemPercent"`
+				DiskReadBytesPerSec  uint64  `json:"DiskReadBytesPerSec"`
+				DiskWriteBytesPerSec uint64  `json:"DiskWriteBytesPerSec"`
+				NetRxBytesPerSec     uint64  `json:"NetRxBytesPerSec"`
+				NetTxBytesPerSec     uint64  `json:"NetTxBytesPerSec"`
+				DiskUsedPercent      float64 `json:"DiskUsedPercent"`
+			}
 
 			data, _ := json.Marshal(map[string]interface{}{
 				"server_uuid": uuid,
 				"timestamp":   host.Timestamp,
-				"host":        host,
-				"containers":  containers,
+				"host": hostLive{
+					Timestamp:            host.Timestamp,
+					CPU:                  host.CPU,
+					MemUsed:              host.MemUsed,
+					MemPercent:           host.MemPercent,
+					DiskReadBytesPerSec:  host.DiskReadBytesPerSec,
+					DiskWriteBytesPerSec: host.DiskWriteBytesPerSec,
+					NetRxBytesPerSec:     host.NetRxBytesPerSec,
+					NetTxBytesPerSec:     host.NetTxBytesPerSec,
+					DiskUsedPercent:      host.DiskUsedPercent,
+				},
+				"containers": containerSlice,
 			})
 			fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useSSE } from '@/hooks/useSSE'
 import type {
+  ContainerHistory,
+  LiveServerContainer,
   LiveServerEvent,
   LiveServerHost,
-  LiveServerContainer,
+  RawContainerMetricPoint,
   RawHostMetricPoint,
 } from '@/types'
 import { normalizeLiveHost, normalizeLiveContainer } from '@/types'
@@ -69,9 +71,37 @@ export function useServerMetrics(
 
         const data = (await res.json()) as {
           host?: { points?: RawHostMetricPoint[] }
+          containers?: ContainerHistory[]
         }
         const points = data.host?.points ?? []
-        if (cancelled || points.length === 0) return
+        if (cancelled) return
+
+        // Prefill kontenerów
+        if ((data.containers ?? []).length > 0) {
+          const buf = containerBufferRef.current
+          for (const c of data.containers!) {
+            const mapped: LiveServerContainer[] = (c.points as RawContainerMetricPoint[]).map(
+              (p) => ({
+                container_id: c.container_id,
+                timestamp: p.timestamp,
+                cpu: p.cpu,
+                mem_used: p.mem_used,
+                mem_percent: 0,
+                disk_used: p.disk_used,
+                disk_percent: 0,
+                net_rx: p.net_rx_bytes,
+                net_tx: p.net_tx_bytes,
+              }),
+            )
+            buf.set(
+              c.container_id,
+              mapped.length > MAX_BUFFER_SIZE ? mapped.slice(-MAX_BUFFER_SIZE) : mapped,
+            )
+          }
+          if (!cancelled) setContainerPoints(new Map(buf))
+        }
+
+        if (points.length === 0) return
 
         const mapped: LiveServerHost[] = points.map((p) => ({
           timestamp: p.timestamp,
@@ -82,6 +112,7 @@ export function useServerMetrics(
           disk_write_bytes_per_sec: p.disk_write_bytes_per_sec,
           net_rx_bytes_per_sec: p.net_rx_bytes_per_sec,
           net_tx_bytes_per_sec: p.net_tx_bytes_per_sec,
+          disk_used_percent: p.disk_used_percent ?? 0,
         }))
 
         const last = mapped[mapped.length - 1]
@@ -124,8 +155,8 @@ export function useServerMetrics(
 
       for (const rawContainer of event.containers) {
         const normalized = normalizeLiveContainer(rawContainer)
-        // Używamy indeksu jako klucza (backend nie wysyła container_id w live)
-        const key = String(event.containers.indexOf(rawContainer))
+        const key = rawContainer.ContainerID
+        if (!key) continue
         const existing = buf.get(key) ?? []
         const next = [...existing, normalized]
         buf.set(

@@ -178,6 +178,7 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 						DiskWriteBytesPerSec: m.Host.DiskWriteBytesPerSec,
 						NetRxBytesPerSec:     m.Host.NetRxBytesPerSec,
 						NetTxBytesPerSec:     m.Host.NetTxBytesPerSec,
+						DiskUsedPercent:      m.Host.DiskUsedPercent,
 					})
 				} else if m.System != nil {
 					// Backward compatibility for older agents sending "system" only.

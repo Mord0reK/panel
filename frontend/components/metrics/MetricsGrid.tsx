@@ -4,17 +4,20 @@ import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useState } from 'react'
 import type { ComponentType } from 'react'
 
+import { ContainerMetricsSection } from '@/components/metrics/ContainerMetricsSection'
 import { RangeDropdown } from '@/components/metrics/RangeDropdown'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useServerMetrics } from '@/hooks/useServerMetrics'
 import { api } from '@/lib/api'
 import type {
   AggregatedHostMetricPoint,
+  Container,
+  ContainerHistory,
   LiveServerHost,
   MetricRange,
 } from '@/types'
 
-type ChartType = 'cpu' | 'ram' | 'disk' | 'net'
+type ChartType = 'cpu' | 'ram' | 'disk' | 'disk_percent' | 'net'
 
 const ChartSkeleton = () => <Skeleton className="h-50 w-full" />
 
@@ -33,23 +36,23 @@ const HistoryChart = dynamic(
   range: MetricRange
 }>
 
-const CHART_TYPES = ['cpu', 'ram', 'disk', 'net'] as const
+const CHART_TYPES = ['cpu', 'ram', 'disk', 'disk_percent', 'net'] as const
 
 interface MetricsGridProps {
   uuid: string
+  containers?: Container[]
 }
 
-export function MetricsGrid({ uuid }: MetricsGridProps) {
+export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
   const [range, setRange] = useState<MetricRange>('1m')
   const isLive = range === '1m'
 
   // Live data — SSE
-  const { hostPoints, connected, error } = useServerMetrics(uuid, isLive)
+  const { hostPoints, containerPoints, connected, error } = useServerMetrics(uuid, isLive)
 
   // History data — jednorazowy fetch
-  const [historyPoints, setHistoryPoints] = useState<
-    AggregatedHostMetricPoint[]
-  >([])
+  const [historyPoints, setHistoryPoints] = useState<AggregatedHostMetricPoint[]>([])
+  const [historyContainers, setHistoryContainers] = useState<ContainerHistory[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
 
@@ -59,9 +62,8 @@ export function MetricsGrid({ uuid }: MetricsGridProps) {
       setHistoryError(null)
       try {
         const data = await api.getMetricsHistory(uuid, r)
-        setHistoryPoints(
-          (data.host?.points ?? []) as AggregatedHostMetricPoint[],
-        )
+        setHistoryPoints((data.host?.points ?? []) as AggregatedHostMetricPoint[])
+        setHistoryContainers(data.containers ?? [])
       } catch (err) {
         setHistoryError(
           err instanceof Error ? err.message : 'Błąd ładowania danych',
@@ -146,6 +148,15 @@ export function MetricsGrid({ uuid }: MetricsGridProps) {
           </div>
         ))}
       </div>
+
+      {/* Metryki kontenerów */}
+      <ContainerMetricsSection
+        containerPoints={containerPoints}
+        containers={containers}
+        historyContainers={historyContainers}
+        isLive={isLive}
+        range={range}
+      />
     </div>
   )
 }

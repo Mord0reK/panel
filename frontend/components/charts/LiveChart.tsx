@@ -11,7 +11,7 @@ import type { LiveServerHost } from '@/types'
 // Typy wykresu
 // ---------------------------------------------------------------------------
 
-export type LiveChartType = 'cpu' | 'ram' | 'disk' | 'net'
+export type LiveChartType = 'cpu' | 'ram' | 'disk' | 'disk_percent' | 'net'
 
 interface LiveChartProps {
   /** Bufor ostatnich 60 punktów hosta */
@@ -86,6 +86,16 @@ const CHART_CONFIGS: Record<LiveChartType, ChartConfig> = {
     tooltipFormatter: fmtBytesPerSec,
     yAxisFormatter: fmtBytesPerSec,
     yMin: 0,
+  },
+  disk_percent: {
+    title: 'Zajętość dysku',
+    fields: ['disk_used_percent'],
+    seriesNames: ['Zajęte'],
+    colors: ['#f59e0b'],
+    tooltipFormatter: (v) => `${v.toFixed(1)}%`,
+    yAxisFormatter: (v) => `${v}%`,
+    yMin: 0,
+    yMax: 100,
   },
   net: {
     title: 'Sieć',
@@ -165,6 +175,7 @@ export function LiveChart({ points, type }: LiveChartProps) {
             axisValue: string
           }[]
           if (!Array.isArray(list) || list.length === 0) return ''
+          list.sort((a, b) => b.value - a.value)
           let html = `<div style="margin-bottom:4px;color:#a1a1aa">${list[0].axisValue}</div>`
           for (const item of list) {
             html += `<div>${item.seriesName}: <b>${tooltipFormatter(item.value)}</b></div>`

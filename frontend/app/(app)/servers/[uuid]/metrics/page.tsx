@@ -24,7 +24,7 @@ export default async function MetricsPage({
       <ServerInfo server={detail.server} />
 
       {/* Sekcja wykresów — Client Component */}
-      <MetricsGrid uuid={uuid} />
+      <MetricsGrid uuid={uuid} containers={detail.containers ?? []} />
     </main>
   )
 }

@@ -21,10 +21,11 @@ type HostSnapshot struct {
 	MemUsed    uint64  `json:"mem_used"`
 	MemPercent float64 `json:"mem_percent"`
 
-	DiskReadBytesPerSec  uint64 `json:"disk_read_bytes_per_sec"`
-	DiskWriteBytesPerSec uint64 `json:"disk_write_bytes_per_sec"`
-	NetRxBytesPerSec     uint64 `json:"net_rx_bytes_per_sec"`
-	NetTxBytesPerSec     uint64 `json:"net_tx_bytes_per_sec"`
+	DiskReadBytesPerSec  uint64  `json:"disk_read_bytes_per_sec"`
+	DiskWriteBytesPerSec uint64  `json:"disk_write_bytes_per_sec"`
+	NetRxBytesPerSec     uint64  `json:"net_rx_bytes_per_sec"`
+	NetTxBytesPerSec     uint64  `json:"net_tx_bytes_per_sec"`
+	DiskUsedPercent      float64 `json:"disk_used_percent"`
 
 	DiskReadBytesTotal  uint64 `json:"disk_read_bytes_total"`
 	DiskWriteBytesTotal uint64 `json:"disk_write_bytes_total"`
@@ -97,6 +98,17 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 		host.DiskWriteBytesPerSec = toRate(diskWriteTotal, c.prevHost.DiskWrite, elapsed)
 		host.NetRxBytesPerSec = toRate(netRxTotal, c.prevHost.NetRx, elapsed)
 		host.NetTxBytesPerSec = toRate(netTxTotal, c.prevHost.NetTx, elapsed)
+	}
+
+	// Populate disk usage percent from the root partition (or fallback to first available)
+	for _, d := range sysMetrics.Disk {
+		if d.Mountpoint == "/" {
+			host.DiskUsedPercent = d.Percent
+			break
+		}
+	}
+	if host.DiskUsedPercent == 0 && len(sysMetrics.Disk) > 0 {
+		host.DiskUsedPercent = sysMetrics.Disk[0].Percent
 	}
 
 	c.prevHost = &hostCounters{

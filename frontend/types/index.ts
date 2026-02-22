@@ -89,6 +89,7 @@ export interface RawHostMetricPoint {
   disk_write_bytes_per_sec: number
   net_rx_bytes_per_sec: number
   net_tx_bytes_per_sec: number
+  disk_used_percent: number
 }
 
 /** Surowy punkt kontenera z RAM buffera (range=1m) */
@@ -124,6 +125,9 @@ export interface AggregatedHostMetricPoint {
   net_tx_bytes_per_sec_avg: number
   net_tx_bytes_per_sec_min: number
   net_tx_bytes_per_sec_max: number
+  disk_used_percent_avg: number
+  disk_used_percent_min: number
+  disk_used_percent_max: number
 }
 
 /** Zagregowany punkt kontenera z DB (range > 1m) */
@@ -183,6 +187,7 @@ export interface LiveServerSnapshot {
   hostname: string
   cpu: number
   memory: number // mem_used w bajtach
+  disk_used_percent: number
   disk_read_bytes_per_sec: number
   disk_write_bytes_per_sec: number
   net_rx_bytes_per_sec: number
@@ -208,10 +213,12 @@ export interface LiveServerHostRaw {
   DiskWriteBytesPerSec: number
   NetRxBytesPerSec: number
   NetTxBytesPerSec: number
+  DiskUsedPercent: number
 }
 
 /** Kontener z /live/servers/[uuid] — PascalCase z backendu */
 export interface LiveServerContainerRaw {
+  ContainerID: string
   Timestamp: number
   CPU: number
   MemUsed: number
@@ -239,10 +246,12 @@ export interface LiveServerHost {
   disk_write_bytes_per_sec: number
   net_rx_bytes_per_sec: number
   net_tx_bytes_per_sec: number
+  disk_used_percent: number
 }
 
 /** Znormalizowany kontener po mapowaniu PascalCase → snake_case */
 export interface LiveServerContainer {
+  container_id: string
   timestamp: number
   cpu: number
   mem_used: number
@@ -295,6 +304,7 @@ export function normalizeLiveHost(raw: LiveServerHostRaw): LiveServerHost {
     disk_write_bytes_per_sec: raw.DiskWriteBytesPerSec,
     net_rx_bytes_per_sec: raw.NetRxBytesPerSec,
     net_tx_bytes_per_sec: raw.NetTxBytesPerSec,
+    disk_used_percent: raw.DiskUsedPercent ?? 0,
   }
 }
 
@@ -303,6 +313,7 @@ export function normalizeLiveContainer(
   raw: LiveServerContainerRaw
 ): LiveServerContainer {
   return {
+    container_id: raw.ContainerID,
     timestamp: raw.Timestamp,
     cpu: raw.CPU,
     mem_used: raw.MemUsed,

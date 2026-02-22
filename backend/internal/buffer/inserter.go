@@ -62,6 +62,10 @@ type aggregatedHostMetricRow struct {
 	NetTxBytesPerSecAvg float64
 	NetTxBytesPerSecMin float64
 	NetTxBytesPerSecMax float64
+
+	DiskUsedPercentAvg float64
+	DiskUsedPercentMin float64
+	DiskUsedPercentMax float64
 }
 
 type BulkInserter struct {
@@ -224,13 +228,14 @@ func (bi *BulkInserter) bulkInsertHost(agentID string, points []HostMetricPoint)
 		mem_avg, mem_min, mem_max,
 		disk_avg, disk_write_avg, disk_write_min, disk_write_max,
 		net_rx_avg, net_rx_min, net_rx_max,
-		net_tx_avg, net_tx_min, net_tx_max
+		net_tx_avg, net_tx_min, net_tx_max,
+		disk_used_percent_avg, disk_used_percent_min, disk_used_percent_max
 	) VALUES `
 	vals := []interface{}{}
 	placeholders := []string{}
 
 	for _, row := range rows {
-		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 		vals = append(vals,
 			agentID,
 			models.HostMainContainerID,
@@ -251,6 +256,9 @@ func (bi *BulkInserter) bulkInsertHost(agentID string, points []HostMetricPoint)
 			row.NetTxBytesPerSecAvg,
 			row.NetTxBytesPerSecMin,
 			row.NetTxBytesPerSecMax,
+			row.DiskUsedPercentAvg,
+			row.DiskUsedPercentMin,
+			row.DiskUsedPercentMax,
 		)
 	}
 
@@ -418,6 +426,10 @@ func aggregateHostTo5s(points []HostMetricPoint) []aggregatedHostMetricRow {
 		netTxSum float64
 		netTxMin float64
 		netTxMax float64
+
+		diskUsedPercentSum float64
+		diskUsedPercentMin float64
+		diskUsedPercentMax float64
 	}
 
 	buckets := make(map[int64]*accumulator)
@@ -426,18 +438,20 @@ func aggregateHostTo5s(points []HostMetricPoint) []aggregatedHostMetricRow {
 		acc, ok := buckets[bucket]
 		if !ok {
 			acc = &accumulator{
-				cpuMin:       math.MaxFloat64,
-				cpuMax:       -math.MaxFloat64,
-				memUsedMin:   math.MaxFloat64,
-				memUsedMax:   -math.MaxFloat64,
-				diskReadMin:  math.MaxFloat64,
-				diskReadMax:  -math.MaxFloat64,
-				diskWriteMin: math.MaxFloat64,
-				diskWriteMax: -math.MaxFloat64,
-				netRxMin:     math.MaxFloat64,
-				netRxMax:     -math.MaxFloat64,
-				netTxMin:     math.MaxFloat64,
-				netTxMax:     -math.MaxFloat64,
+				cpuMin:             math.MaxFloat64,
+				cpuMax:             -math.MaxFloat64,
+				memUsedMin:         math.MaxFloat64,
+				memUsedMax:         -math.MaxFloat64,
+				diskReadMin:        math.MaxFloat64,
+				diskReadMax:        -math.MaxFloat64,
+				diskWriteMin:       math.MaxFloat64,
+				diskWriteMax:       -math.MaxFloat64,
+				netRxMin:           math.MaxFloat64,
+				netRxMax:           -math.MaxFloat64,
+				netTxMin:           math.MaxFloat64,
+				netTxMax:           -math.MaxFloat64,
+				diskUsedPercentMin: math.MaxFloat64,
+				diskUsedPercentMax: -math.MaxFloat64,
 			}
 			buckets[bucket] = acc
 		}
@@ -448,6 +462,7 @@ func aggregateHostTo5s(points []HostMetricPoint) []aggregatedHostMetricRow {
 		diskWrite := float64(point.DiskWriteBytesPerSec)
 		netRx := float64(point.NetRxBytesPerSec)
 		netTx := float64(point.NetTxBytesPerSec)
+		diskUsedPercent := point.DiskUsedPercent
 
 		acc.count++
 
@@ -498,6 +513,14 @@ func aggregateHostTo5s(points []HostMetricPoint) []aggregatedHostMetricRow {
 		if netTx > acc.netTxMax {
 			acc.netTxMax = netTx
 		}
+
+		acc.diskUsedPercentSum += diskUsedPercent
+		if diskUsedPercent < acc.diskUsedPercentMin {
+			acc.diskUsedPercentMin = diskUsedPercent
+		}
+		if diskUsedPercent > acc.diskUsedPercentMax {
+			acc.diskUsedPercentMax = diskUsedPercent
+		}
 	}
 
 	bucketKeys := make([]int64, 0, len(buckets))
@@ -533,6 +556,9 @@ func aggregateHostTo5s(points []HostMetricPoint) []aggregatedHostMetricRow {
 			NetTxBytesPerSecAvg:     acc.netTxSum / count,
 			NetTxBytesPerSecMin:     acc.netTxMin,
 			NetTxBytesPerSecMax:     acc.netTxMax,
+			DiskUsedPercentAvg:      acc.diskUsedPercentSum / count,
+			DiskUsedPercentMin:      acc.diskUsedPercentMin,
+			DiskUsedPercentMax:      acc.diskUsedPercentMax,
 		})
 	}
 

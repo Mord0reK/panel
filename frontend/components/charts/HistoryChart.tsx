@@ -11,7 +11,7 @@ import type { AggregatedHostMetricPoint, MetricRange } from '@/types'
 // Typy wykresu — takie same jak LiveChart
 // ---------------------------------------------------------------------------
 
-export type HistoryChartType = 'cpu' | 'ram' | 'disk' | 'net'
+export type HistoryChartType = 'cpu' | 'ram' | 'disk' | 'disk_percent' | 'net'
 
 interface HistoryChartProps {
   /** Tablica zagregowanych punktów hosta */
@@ -116,6 +116,23 @@ const CONFIGS: Record<HistoryChartType, HistoryChartConfig> = {
     yAxisLabel: '',
     yMin: 0,
   },
+  disk_percent: {
+    title: 'Zajętość dysku',
+    series: [
+      {
+        avg: 'disk_used_percent_avg',
+        min: 'disk_used_percent_min',
+        max: 'disk_used_percent_max',
+        name: 'Zajęte',
+        color: '#f59e0b',
+      },
+    ],
+    tooltipFormatter: (v) => `${v.toFixed(1)}%`,
+    yAxisFormatter: (v) => `${v}%`,
+    yAxisLabel: '%',
+    yMin: 0,
+    yMax: 100,
+  },
   net: {
     title: 'Przepustowość sieci (net I/O)',
     series: [
@@ -218,12 +235,12 @@ export function HistoryChart({ points, type, range }: HistoryChartProps) {
             axisValue: string
           }[]
           if (!Array.isArray(list) || list.length === 0) return ''
-          // Filtruj min/max z tooltip
           const visible = list.filter(
             (item) =>
               !item.seriesName.endsWith(' min') &&
               !item.seriesName.endsWith(' max'),
           )
+          visible.sort((a, b) => b.value - a.value)
           let html = `<div style="margin-bottom:4px">${visible[0]?.axisValue ?? ''}</div>`
           for (const item of visible) {
             html += `<div>${item.seriesName}: <b>${config.tooltipFormatter(item.value)}</b></div>`
@@ -265,7 +282,7 @@ export function HistoryChart({ points, type, range }: HistoryChartProps) {
   return (
     <ReactECharts
       option={option}
-      style={{ width: '100%', height: '200px' }}
+      style={{ width: '100%', height: '200px'}}
       notMerge={true}
       lazyUpdate={true}
       theme="dark"

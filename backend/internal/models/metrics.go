@@ -76,6 +76,10 @@ type HistoricalHostMetricPoint struct {
 	NetTxBytesPerSecAvg float64 `json:"net_tx_bytes_per_sec_avg"`
 	NetTxBytesPerSecMin float64 `json:"net_tx_bytes_per_sec_min"`
 	NetTxBytesPerSecMax float64 `json:"net_tx_bytes_per_sec_max"`
+
+	DiskUsedPercentAvg float64 `json:"disk_used_percent_avg"`
+	DiskUsedPercentMin float64 `json:"disk_used_percent_min"`
+	DiskUsedPercentMax float64 `json:"disk_used_percent_max"`
 }
 
 type rangeConfig struct {
@@ -158,7 +162,8 @@ func GetHistoricalHostMetrics(db *sql.DB, agentUUID, rangeKey string) ([]Histori
 			mem_avg, mem_min, mem_max,
 			disk_avg, disk_write_avg, disk_write_min, disk_write_max,
 			net_rx_avg, net_rx_min, net_rx_max,
-			net_tx_avg, net_tx_min, net_tx_max
+			net_tx_avg, net_tx_min, net_tx_max,
+			disk_used_percent_avg, disk_used_percent_min, disk_used_percent_max
 		FROM %s WHERE agent_uuid=? AND container_id=? AND timestamp>=? AND timestamp<=?
 		ORDER BY timestamp ASC`, table)
 
@@ -178,6 +183,7 @@ func GetHistoricalHostMetrics(db *sql.DB, agentUUID, rangeKey string) ([]Histori
 			&p.DiskReadBytesPerSecAvg, &p.DiskWriteBytesPerSecAvg, &p.DiskWriteBytesPerSecMin, &p.DiskWriteBytesPerSecMax,
 			&p.NetRxBytesPerSecAvg, &p.NetRxBytesPerSecMin, &p.NetRxBytesPerSecMax,
 			&p.NetTxBytesPerSecAvg, &p.NetTxBytesPerSecMin, &p.NetTxBytesPerSecMax,
+			&p.DiskUsedPercentAvg, &p.DiskUsedPercentMin, &p.DiskUsedPercentMax,
 		)
 		if err != nil {
 			return nil, err

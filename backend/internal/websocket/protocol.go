@@ -63,10 +63,11 @@ type HostMetrics struct {
 	MemUsed    uint64  `json:"mem_used"`
 	MemPercent float64 `json:"mem_percent"`
 
-	DiskReadBytesPerSec  uint64 `json:"disk_read_bytes_per_sec"`
-	DiskWriteBytesPerSec uint64 `json:"disk_write_bytes_per_sec"`
-	NetRxBytesPerSec     uint64 `json:"net_rx_bytes_per_sec"`
-	NetTxBytesPerSec     uint64 `json:"net_tx_bytes_per_sec"`
+	DiskReadBytesPerSec  uint64  `json:"disk_read_bytes_per_sec"`
+	DiskWriteBytesPerSec uint64  `json:"disk_write_bytes_per_sec"`
+	NetRxBytesPerSec     uint64  `json:"net_rx_bytes_per_sec"`
+	NetTxBytesPerSec     uint64  `json:"net_tx_bytes_per_sec"`
+	DiskUsedPercent      float64 `json:"disk_used_percent"`
 }
 
 type LegacySystemMetrics struct {
