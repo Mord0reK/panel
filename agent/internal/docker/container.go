@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
@@ -210,73 +211,89 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*
 		return nil, fmt.Errorf("failed to list running containers: %w", err)
 	}
 
+	var wg sync.WaitGroup
+	results := make(chan RealtimeContainerInfo, len(containers.Items))
+
 	for _, c := range containers.Items {
 		if string(c.State) != "running" {
 			continue
 		}
 
-		name := c.Names[0]
-		if len(name) > 0 && name[0] == '/' {
-			name = name[1:]
-		}
+		wg.Add(1)
+		go func(containerID, containerName, containerImage string) {
+			defer wg.Done()
 
-		info := RealtimeContainerInfo{
-			ContainerID: c.ID[:12],
-			Name:        name,
-			State:       string(c.State),
-			Image:       c.Image,
-			Timestamp:   time.Now().Unix(),
-		}
+			name := containerName
+			if len(name) > 0 && name[0] == '/' {
+				name = name[1:]
+			}
 
-		statsResp, err := cli.ContainerStats(ctx, c.ID, client.ContainerStatsOptions{Stream: false})
-		if err == nil {
-			var stats container.StatsResponse
-			if err := json.NewDecoder(statsResp.Body).Decode(&stats); err == nil {
-				cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
-				systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
-				onlineCPUs := float64(stats.CPUStats.OnlineCPUs)
-				if onlineCPUs == 0 {
-					onlineCPUs = float64(len(stats.CPUStats.CPUUsage.PercpuUsage))
-				}
-				if systemDelta > 0 && cpuDelta > 0 {
-					info.CPU = (cpuDelta / systemDelta) * onlineCPUs * 100.0
-				}
+			info := RealtimeContainerInfo{
+				ContainerID: containerID[:12],
+				Name:        name,
+				State:       "running",
+				Image:       containerImage,
+				Timestamp:   time.Now().Unix(),
+			}
 
-				// docker stats subtracts cache (inactive_file) from usage, we do the same
-				memUsed := stats.MemoryStats.Usage
-				if stats.MemoryStats.Stats != nil {
-					if inactiveFile, ok := stats.MemoryStats.Stats["inactive_file"]; ok && memUsed > inactiveFile {
-						memUsed -= inactiveFile
-					} else if cache, ok := stats.MemoryStats.Stats["cache"]; ok && memUsed > cache {
-						memUsed -= cache
+			statsResp, err := cli.ContainerStats(ctx, containerID, client.ContainerStatsOptions{Stream: false})
+			if err == nil {
+				var stats container.StatsResponse
+				if err := json.NewDecoder(statsResp.Body).Decode(&stats); err == nil {
+					cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
+					systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
+					onlineCPUs := float64(stats.CPUStats.OnlineCPUs)
+					if onlineCPUs == 0 {
+						onlineCPUs = float64(len(stats.CPUStats.CPUUsage.PercpuUsage))
 					}
-				}
-				info.MemUsed = memUsed
-				memLimit := stats.MemoryStats.Limit
-				if memLimit > 0 {
-					info.MemPercent = float64(info.MemUsed) / float64(memLimit) * 100.0
-				}
+					if systemDelta > 0 && cpuDelta > 0 {
+						info.CPU = (cpuDelta / systemDelta) * onlineCPUs * 100.0
+					}
 
-				if len(stats.BlkioStats.IoServiceBytesRecursive) > 0 {
-					for _, bio := range stats.BlkioStats.IoServiceBytesRecursive {
-						if bio.Op == "read" || bio.Op == "Read" {
-							info.DiskUsed += bio.Value
-						} else if bio.Op == "write" || bio.Op == "Write" {
-							info.DiskUsed += bio.Value
+					memUsed := stats.MemoryStats.Usage
+					if stats.MemoryStats.Stats != nil {
+						if inactiveFile, ok := stats.MemoryStats.Stats["inactive_file"]; ok && memUsed > inactiveFile {
+							memUsed -= inactiveFile
+						} else if cache, ok := stats.MemoryStats.Stats["cache"]; ok && memUsed > cache {
+							memUsed -= cache
+						}
+					}
+					info.MemUsed = memUsed
+					memLimit := stats.MemoryStats.Limit
+					if memLimit > 0 {
+						info.MemPercent = float64(info.MemUsed) / float64(memLimit) * 100.0
+					}
+
+					if len(stats.BlkioStats.IoServiceBytesRecursive) > 0 {
+						for _, bio := range stats.BlkioStats.IoServiceBytesRecursive {
+							if bio.Op == "read" || bio.Op == "Read" {
+								info.DiskUsed += bio.Value
+							} else if bio.Op == "write" || bio.Op == "Write" {
+								info.DiskUsed += bio.Value
+							}
+						}
+					}
+
+					if stats.Networks != nil {
+						for _, net := range stats.Networks {
+							info.NetRx += net.RxBytes
+							info.NetTx += net.TxBytes
 						}
 					}
 				}
-
-				if stats.Networks != nil {
-					for _, net := range stats.Networks {
-						info.NetRx += net.RxBytes
-						info.NetTx += net.TxBytes
-					}
-				}
+				_ = statsResp.Body.Close()
 			}
-			_ = statsResp.Body.Close()
-		}
 
+			results <- info
+		}(c.ID, c.Names[0], c.Image)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for info := range results {
 		metrics.Containers = append(metrics.Containers, info)
 	}
 

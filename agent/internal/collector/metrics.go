@@ -167,14 +167,6 @@ func CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 		metrics.CPU.PerCPUPercent = make([]float64, len(times))
 	}
 
-	cpuPercent, err := cpu.PercentWithContext(ctx, 100*time.Millisecond, false)
-	if err != nil {
-		return nil, err
-	}
-	if len(cpuPercent) > 0 {
-		metrics.CPU.Percent = cpuPercent[0]
-	}
-
 	cpuInfo, err := cpu.InfoWithContext(ctx)
 	if err == nil {
 		metrics.CPU.Count = len(cpuInfo)

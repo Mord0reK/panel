@@ -10,6 +10,7 @@ import (
 	"agent/internal/docker"
 
 	"github.com/moby/moby/client"
+	gocpu "github.com/shirou/gopsutil/v4/cpu"
 	godisk "github.com/shirou/gopsutil/v4/disk"
 	gonet "github.com/shirou/gopsutil/v4/net"
 )
@@ -46,9 +47,8 @@ type hostCounters struct {
 	DiskRead  uint64
 	DiskWrite uint64
 
-	CPUUser   float64
-	CPUSystem float64
-	CPUIdle   float64
+	CPUTotal float64
+	CPUIdle  float64
 }
 
 type containerCounters struct {
@@ -85,6 +85,13 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 	netRxTotal, netTxTotal := collectNetworkTotals(ctx)
 	diskReadTotal, diskWriteTotal := collectDiskIOTotals(ctx)
 
+	cpuTimes, err := gocpu.TimesWithContext(ctx, false)
+	var cpuTotal, cpuIdle float64
+	if err == nil && len(cpuTimes) > 0 {
+		cpuTotal = cpuTimes[0].Total()
+		cpuIdle = cpuTimes[0].Idle
+	}
+
 	host := HostSnapshot{
 		Timestamp:           ts,
 		CPU:                 sysMetrics.CPU.Percent,
@@ -98,21 +105,20 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 
 	if c.prevHost != nil {
 		elapsed := now.Sub(c.prevHost.Ts).Seconds()
-		if elapsed > 0 {
-			deltaUser := sysMetrics.CPU.User - c.prevHost.CPUUser
-			deltaSystem := sysMetrics.CPU.System - c.prevHost.CPUSystem
-			deltaIdle := sysMetrics.CPU.Idle - c.prevHost.CPUIdle
-			totalDelta := deltaUser + deltaSystem + deltaIdle
+		if elapsed > 0 && len(cpuTimes) > 0 {
+			deltaTotal := cpuTimes[0].Total() - c.prevHost.CPUTotal
+			deltaIdle := cpuTimes[0].Idle - c.prevHost.CPUIdle
 
-			if totalDelta > 0 {
-				host.CPU = ((deltaUser + deltaSystem) / totalDelta) * 100
+			if deltaTotal > 0 {
+				host.CPU = (1 - deltaIdle/deltaTotal) * 100
 			}
 		}
 
-		host.DiskReadBytesPerSec = toRate(diskReadTotal, c.prevHost.DiskRead, elapsed)
-		host.DiskWriteBytesPerSec = toRate(diskWriteTotal, c.prevHost.DiskWrite, elapsed)
-		host.NetRxBytesPerSec = toRate(netRxTotal, c.prevHost.NetRx, elapsed)
-		host.NetTxBytesPerSec = toRate(netTxTotal, c.prevHost.NetTx, elapsed)
+		elapsedForRates := now.Sub(c.prevHost.Ts).Seconds()
+		host.DiskReadBytesPerSec = toRate(diskReadTotal, c.prevHost.DiskRead, elapsedForRates)
+		host.DiskWriteBytesPerSec = toRate(diskWriteTotal, c.prevHost.DiskWrite, elapsedForRates)
+		host.NetRxBytesPerSec = toRate(netRxTotal, c.prevHost.NetRx, elapsedForRates)
+		host.NetTxBytesPerSec = toRate(netTxTotal, c.prevHost.NetTx, elapsedForRates)
 	}
 
 	// Populate disk usage percent from the root partition (or fallback to first available)
@@ -132,9 +138,8 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 		NetTx:     netTxTotal,
 		DiskRead:  diskReadTotal,
 		DiskWrite: diskWriteTotal,
-		CPUUser:   sysMetrics.CPU.User,
-		CPUSystem: sysMetrics.CPU.System,
-		CPUIdle:   sysMetrics.CPU.Idle,
+		CPUTotal:  cpuTotal,
+		CPUIdle:   cpuIdle,
 	}
 
 	var containers []docker.RealtimeContainerInfo

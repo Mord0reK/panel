@@ -136,10 +136,10 @@ Dla grupy compose używa bezpośrednio Docker API, nie wymaga CLI `docker-compos
 
 ### UUID Agenta
 
-UUID jest generowany deterministycznie z `host_id` systemu (SHA1):
+UUID jest generowany deterministycznie z `host_id` systemu (SHA256):
 
 ```
-agent_uuid = hex(SHA1(host_id))
+agent_uuid = hex(SHA256(host_id))
 ```
 
 Ten sam serwer zawsze generuje ten sam UUID — identyfikuje serwer w backendzie nawet po restarcie agenta.
@@ -209,7 +209,7 @@ Wysyłana natychmiast po połączeniu. Zawiera UUID oraz statyczne informacje o 
 | Pole | Typ | Opis |
 |------|-----|------|
 | `type` | string | Zawsze `"auth"` |
-| `uuid` | string | SHA1 z host_id — unikalny identyfikator serwera |
+| `uuid` | string | SHA256 z host_id — unikalny identyfikator serwera |
 | `info.hostname` | string | Nazwa hosta |
 | `info.cpu_model` | string | Model procesora |
 | `info.cpu_cores` | int | Liczba rdzeni logicznych |

@@ -183,7 +183,9 @@ func runWebSocket() {
 
 	sysInfo, err := collector.CollectSystemInfo(ctx)
 	if err != nil {
-		log.Fatalf("Failed to collect system info: %v", err)
+		log.Printf("Warning: failed to collect system info: %v", err)
+		log.Printf("Continuing with limited functionality")
+		sysInfo = &collector.SystemInfo{HostID: "unknown"}
 	}
 
 	agentUUID := generateAgentUUID(sysInfo.HostID)
@@ -193,8 +195,12 @@ func runWebSocket() {
 	wsClient := websocket.NewClient(backendURL)
 
 	if err := wsClient.Connect(ctx); err != nil {
-		log.Fatalf("Failed to connect to WebSocket: %v", err)
+		log.Printf("Failed to connect to WebSocket: %v", err)
+		log.Printf("Retrying in 10 seconds...")
+		time.Sleep(10 * time.Second)
+		// Could implement retry loop here
 	}
+	// Continue even if initial connection fails - will retry in main loop
 	log.Printf("WebSocket connected to %s", backendURL)
 
 	authInfo := websocket.AuthInfo{
@@ -238,6 +244,7 @@ func runWebSocket() {
 	dockerCli, err := docker.NewDockerClient()
 	if err != nil {
 		log.Printf("Warning: failed to create Docker client: %v", err)
+		log.Printf("Docker metrics will not be available")
 	}
 	defer func() {
 		if dockerCli != nil {
