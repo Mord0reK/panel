@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"log"
 	"log/slog"
 	"net/http"
@@ -16,6 +18,8 @@ import (
 	"backend/internal/buffer"
 	"backend/internal/config"
 	"backend/internal/database"
+	"backend/internal/models"
+	"backend/internal/services"
 	ws "backend/internal/websocket"
 
 	"github.com/gorilla/mux"
@@ -40,6 +44,9 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
+	// Initialize active services from DB
+	initServices(db, cfg)
+
 	// 4. Create Components
 	agentHub := ws.NewHub()
 	bufferManager := buffer.NewBufferManager()
@@ -53,6 +60,7 @@ func main() {
 	commandsHandler := api.NewCommandsHandler(agentHub)
 	metricsHandler := api.NewMetricsHandler(db, bufferManager)
 	sseHandler := api.NewSSEHandler(db, bufferManager, cfg.CORSOrigin)
+	servicesHandler := api.NewServicesHandler(db, cfg)
 
 	// 6. Router
 	r := mux.NewRouter()
@@ -107,6 +115,12 @@ func main() {
 	apiRouter.HandleFunc("/metrics/live/all", sseHandler.HandleLiveAll).Methods("GET")
 	apiRouter.HandleFunc("/metrics/live/servers/{uuid}", sseHandler.HandleLiveServer).Methods("GET")
 
+	// Service API
+	apiRouter.HandleFunc("/services", servicesHandler.HandleList).Methods("GET")
+	apiRouter.HandleFunc("/services/{slug}/config", servicesHandler.HandleGetConfig).Methods("GET")
+	apiRouter.HandleFunc("/services/{slug}/config", servicesHandler.HandleSaveConfig).Methods("PUT")
+	apiRouter.PathPrefix("/services/{slug}/proxy/{path:.*}").HandlerFunc(servicesHandler.HandleProxy)
+
 	// WebSocket (Agent)
 	r.HandleFunc("/ws/agent", wsHandler.HandleAgent)
 
@@ -149,4 +163,38 @@ func main() {
 	bulkInserter.Flush()
 
 	slog.Info("Server exiting")
+}
+
+func initServices(db *sql.DB, cfg *config.Config) {
+	slog.Info("Initializing services...")
+	model := &models.ServiceConfig{}
+	configs, err := model.GetAll(db)
+	if err != nil {
+		slog.Error("Failed to fetch service configs", "error", err)
+		return
+	}
+
+	for _, c := range configs {
+		if !c.IsEnabled {
+			continue
+		}
+
+		decryptedJSON, err := services.Decrypt(c.ConfigJSONEncrypted, cfg.EncryptionKey)
+		if err != nil {
+			slog.Error("Failed to decrypt config for service", "slug", c.Slug, "error", err)
+			continue
+		}
+
+		var configMap map[string]string
+		if err := json.Unmarshal([]byte(decryptedJSON), &configMap); err != nil {
+			slog.Error("Failed to unmarshal config for service", "slug", c.Slug, "error", err)
+			continue
+		}
+
+		if err := services.InitializeService(c.Slug, configMap); err != nil {
+			slog.Error("Failed to initialize service", "slug", c.Slug, "error", err)
+		} else {
+			slog.Info("Service initialized", "slug", c.Slug)
+		}
+	}
 }

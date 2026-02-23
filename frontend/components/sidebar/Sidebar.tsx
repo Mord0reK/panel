@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { LayoutDashboardIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
 
 import { ServerNavList } from '@/components/sidebar/ServerNavList'
+import { ServicesNavList } from '@/components/sidebar/ServicesNavList'
 import {
   Sidebar as SidebarPrimitive,
   SidebarContent,
@@ -58,6 +59,13 @@ export function AppSidebar() {
           <SidebarGroupLabel>Serwery</SidebarGroupLabel>
           <SidebarGroupContent>
             <ServerNavList />
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Usługi</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <ServicesNavList />
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

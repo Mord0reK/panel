@@ -6,19 +6,21 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	Port         string
-	DatabasePath string
-	JWTSecret    string
-	CORSOrigin   string
+	Port          string
+	DatabasePath  string
+	JWTSecret     string
+	EncryptionKey string
+	CORSOrigin    string
 }
 
 // Load reads configuration from environment variables or sets default values
 func Load() *Config {
 	return &Config{
-		Port:         getEnv("PORT", "8080"),
-		DatabasePath: getEnv("DATABASE_PATH", "./data/backend.db"),
-		JWTSecret:    getEnv("JWT_SECRET", "default-secret-change-me"),
-		CORSOrigin:   getEnv("CORS_ORIGIN", "*"),
+		Port:          getEnv("PORT", "8080"),
+		DatabasePath:  getEnv("DATABASE_PATH", "./data/backend.db"),
+		JWTSecret:     getEnv("JWT_SECRET", "default-secret-change-me"),
+		EncryptionKey: getEnv("ENCRYPTION_KEY", "default-encryption-key-32-bytes!!"),
+		CORSOrigin:    getEnv("CORS_ORIGIN", "*"),
 	}
 }
 
