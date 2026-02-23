@@ -13,7 +13,10 @@ export default function DashboardPage() {
   const { snapshots, connected } = useLiveAll()
 
   useEffect(() => {
-    api.getServers().then(setServers).catch(() => {})
+    api
+      .getServers()
+      .then(setServers)
+      .catch(() => {})
   }, [])
 
   return (
@@ -25,12 +28,37 @@ export default function DashboardPage() {
             connected ? 'text-emerald-400' : 'text-muted-foreground'
           }`}
         >
-          <span
-            className={`inline-block size-2 rounded-full ${
-              connected ? 'bg-emerald-400' : 'bg-muted-foreground'
-            }`}
-          />
-          {connected ? 'Live' : 'Łączenie…'}
+          {connected ? (
+            <span className="inline-block size-2 rounded-full bg-emerald-400" />
+          ) : (
+            <span
+              role="status"
+              aria-label="Łączenie"
+              className="inline-flex items-center"
+            >
+              <svg
+                className="animate-spin h-3 w-3 text-yellow-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                ></path>
+              </svg>
+            </span>
+          )}
+          {connected ? 'Live' : 'Łączenie'}
         </span>
       </div>
 

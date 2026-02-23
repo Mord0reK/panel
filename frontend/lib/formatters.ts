@@ -39,6 +39,25 @@ export function formatBytesPerSec(bytesPerSec: number, decimals = 2): string {
 }
 
 /**
+ * Formatuje bajty/s na megabity/s (Mbit/s).
+ * @param bytesPerSec - wartość w bajtach/s
+ * @param decimals    - liczba miejsc po przecinku (domyślnie 2)
+ */
+export function formatBitsPerSec(bytesPerSec: number, decimals = 2): string {
+  if (!isFinite(bytesPerSec) || bytesPerSec < 0) return '0 Mbit/s'
+  if (bytesPerSec === 0) return '0 Mbit/s'
+
+  const mbits = (bytesPerSec * 8) / 1_000_000
+
+  if (mbits < 1) {
+    const kbits = (bytesPerSec * 8) / 1000
+    return `${parseFloat(kbits.toFixed(decimals))} Kbit/s`
+  }
+
+  return `${parseFloat(mbits.toFixed(decimals))} Mbit/s`
+}
+
+/**
  * Formatuje wartość procentową z zadaną liczbą miejsc po przecinku.
  * Zwraca np. "12.50%".
  */

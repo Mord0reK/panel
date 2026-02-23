@@ -27,7 +27,7 @@ export default function LoginForm() {
       if (err instanceof ApiError) {
         setError(err.status === 401 ? 'Nieprawidłowa nazwa użytkownika lub hasło.' : 'Błąd logowania. Spróbuj ponownie.')
       } else {
-        setError('Nie można połączyć się z serwerem.')
+        setError('Wystąpił nieoczekiwany błąd. Spróbuj ponownie.')
       }
     } finally {
       setLoading(false)

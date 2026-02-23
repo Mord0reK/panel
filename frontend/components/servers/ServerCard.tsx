@@ -9,7 +9,7 @@ import {
   NetworkIcon,
 } from 'lucide-react'
 
-import { formatBytes, formatBytesPerSec, formatPercent } from '@/lib/formatters'
+import { formatBytes, formatBytesPerSec, formatBitsPerSec, formatPercent } from '@/lib/formatters'
 import type { LiveServerSnapshot } from '@/types'
 
 interface ServerCardProps {
@@ -97,7 +97,7 @@ export function ServerCard({ hostname, uuid, snapshot }: ServerCardProps) {
           label="Net"
           value={
             snapshot
-              ? `↓ ${formatBytesPerSec(snapshot.net_rx_bytes_per_sec)} ↑ ${formatBytesPerSec(snapshot.net_tx_bytes_per_sec)}`
+              ? `↓ ${formatBitsPerSec(snapshot.net_rx_bytes_per_sec)} ↑ ${formatBitsPerSec(snapshot.net_tx_bytes_per_sec)}`
               : '—'
           }
         />

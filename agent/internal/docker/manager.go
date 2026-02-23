@@ -17,7 +17,11 @@ type ContainerManager struct {
 	cacheMu           sync.RWMutex
 }
 
-const cacheTTL = 6 * time.Hour
+const (
+	cacheTTLSuccess   = 6 * time.Hour
+	cacheTTLRateLimit = 15 * time.Minute
+	cacheTTLError     = 1 * time.Hour
+)
 
 func NewContainerManager(cli *client.Client) *ContainerManager {
 	return &ContainerManager{
@@ -450,22 +454,26 @@ func (m *ContainerManager) getRemoteImageDigest(ctx context.Context, image strin
 	inspectResult, err := m.cli.DistributionInspect(ctx, image, client.DistributionInspectOptions{})
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to inspect remote digest: %v", err)
-		m.cacheRemoteDigest(image, "", errMsg)
+		ttl := cacheTTLError
+		if isRateLimitError(err) {
+			ttl = cacheTTLRateLimit
+		}
+		m.cacheRemoteDigest(image, "", errMsg, ttl)
 		return "", fmt.Errorf("%s", errMsg)
 	}
 
 	remoteDigest := strings.TrimSpace(inspectResult.Descriptor.Digest.String())
 	if remoteDigest == "" {
 		errMsg := "remote digest unavailable"
-		m.cacheRemoteDigest(image, "", errMsg)
+		m.cacheRemoteDigest(image, "", errMsg, cacheTTLError)
 		return "", fmt.Errorf("%s", errMsg)
 	}
 
-	m.cacheRemoteDigest(image, remoteDigest, "")
+	m.cacheRemoteDigest(image, remoteDigest, "", cacheTTLSuccess)
 	return remoteDigest, nil
 }
 
-func (m *ContainerManager) cacheRemoteDigest(image, digest, errMsg string) {
+func (m *ContainerManager) cacheRemoteDigest(image, digest, errMsg string, ttl time.Duration) {
 	m.cacheMu.Lock()
 	now := time.Now()
 	for key, cached := range m.remoteDigestCache {
@@ -476,7 +484,7 @@ func (m *ContainerManager) cacheRemoteDigest(image, digest, errMsg string) {
 	m.remoteDigestCache[image] = cachedDigestResult{
 		digest:    digest,
 		errMsg:    errMsg,
-		expiresAt: now.Add(cacheTTL),
+		expiresAt: now.Add(ttl),
 	}
 	m.cacheMu.Unlock()
 }
@@ -533,7 +541,7 @@ func (m *ContainerManager) UpdateComposeGroup(ctx context.Context, projectName s
 			results = append(results, UpdateResult{Container: strings.TrimPrefix(c.Names[0], "/"), Success: false, Message: fmt.Sprintf("failed to inspect container: %v", err)})
 			continue
 		}
-		
+
 		containerName := strings.TrimPrefix(inspect.Container.Name, "/")
 		imageName := ""
 		if inspect.Container.Config != nil {

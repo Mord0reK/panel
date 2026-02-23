@@ -2,11 +2,11 @@ package metrics
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
 	"agent/internal/collector"
+	"agent/internal/config"
 	"agent/internal/docker"
 
 	"github.com/moby/moby/client"
@@ -45,6 +45,10 @@ type hostCounters struct {
 	NetTx     uint64
 	DiskRead  uint64
 	DiskWrite uint64
+
+	CPUUser   float64
+	CPUSystem float64
+	CPUIdle   float64
 }
 
 type containerCounters struct {
@@ -94,6 +98,17 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 
 	if c.prevHost != nil {
 		elapsed := now.Sub(c.prevHost.Ts).Seconds()
+		if elapsed > 0 {
+			deltaUser := sysMetrics.CPU.User - c.prevHost.CPUUser
+			deltaSystem := sysMetrics.CPU.System - c.prevHost.CPUSystem
+			deltaIdle := sysMetrics.CPU.Idle - c.prevHost.CPUIdle
+			totalDelta := deltaUser + deltaSystem + deltaIdle
+
+			if totalDelta > 0 {
+				host.CPU = ((deltaUser + deltaSystem) / totalDelta) * 100
+			}
+		}
+
 		host.DiskReadBytesPerSec = toRate(diskReadTotal, c.prevHost.DiskRead, elapsed)
 		host.DiskWriteBytesPerSec = toRate(diskWriteTotal, c.prevHost.DiskWrite, elapsed)
 		host.NetRxBytesPerSec = toRate(netRxTotal, c.prevHost.NetRx, elapsed)
@@ -117,6 +132,9 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 		NetTx:     netTxTotal,
 		DiskRead:  diskReadTotal,
 		DiskWrite: diskWriteTotal,
+		CPUUser:   sysMetrics.CPU.User,
+		CPUSystem: sysMetrics.CPU.System,
+		CPUIdle:   sysMetrics.CPU.Idle,
 	}
 
 	var containers []docker.RealtimeContainerInfo
@@ -220,16 +238,5 @@ func collectDiskIOTotals(ctx context.Context) (uint64, uint64) {
 }
 
 func ignoredInterface(iface string) bool {
-	ignoredIfaces := map[string]bool{
-		"lo":         true,
-		"virbr":      true,
-		"docker0":    true,
-		"br-":        true,
-		"veth":       true,
-		"tailscale0": true,
-	}
-	if ignoredIfaces[iface] {
-		return true
-	}
-	return strings.HasPrefix(iface, "br-") || strings.HasPrefix(iface, "veth") || strings.HasPrefix(iface, "virbr")
+	return config.IsIgnoredNetworkInterface(iface)
 }

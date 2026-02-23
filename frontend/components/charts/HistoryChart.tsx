@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 
-import { formatTimestamp } from '@/lib/formatters'
+import { formatTimestamp, formatBitsPerSec } from '@/lib/formatters'
 import type { AggregatedHostMetricPoint, MetricRange } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -44,6 +44,10 @@ function fmtBytesPerSec(v: number): string {
   if (v < k * k) return `${(v / k).toFixed(2)} KB/s`
   if (v < k * k * k) return `${(v / (k * k)).toFixed(2)} MB/s`
   return `${(v / (k * k * k)).toFixed(2)} GB/s`
+}
+
+function fmtBitsPerSec(v: number): string {
+  return formatBitsPerSec(v)
 }
 
 interface SeriesFieldDef {
@@ -151,7 +155,7 @@ const CONFIGS: Record<HistoryChartType, HistoryChartConfig> = {
         color: '#fb923c',
       },
     ],
-    tooltipFormatter: fmtBytesPerSec,
+    tooltipFormatter: fmtBitsPerSec,
     yAxisLabel: '',
     yMin: 0,
   },

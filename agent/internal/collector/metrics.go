@@ -2,9 +2,10 @@ package collector
 
 import (
 	"context"
-	"strings"
 	"time"
 	"unicode"
+
+	"agent/internal/config"
 
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
@@ -34,6 +35,9 @@ type CPUStats struct {
 	Percent       float64   `json:"percent"`
 	Count         int       `json:"count"`
 	PerCPUPercent []float64 `json:"per_cpu_percent"`
+	User          float64   `json:"-"`
+	System        float64   `json:"-"`
+	Idle          float64   `json:"-"`
 }
 
 type CPUInfo struct {
@@ -151,15 +155,25 @@ func CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 		Timestamp: time.Now(),
 	}
 
-	cpuPercent, err := cpu.PercentWithContext(ctx, time.Second, false)
+	times, err := cpu.TimesWithContext(ctx, false)
 	if err != nil {
 		return nil, err
 	}
-	metrics.CPU.Percent = 0
+
+	if len(times) > 0 {
+		metrics.CPU.User = times[0].User
+		metrics.CPU.System = times[0].System
+		metrics.CPU.Idle = times[0].Idle
+		metrics.CPU.PerCPUPercent = make([]float64, len(times))
+	}
+
+	cpuPercent, err := cpu.PercentWithContext(ctx, 100*time.Millisecond, false)
+	if err != nil {
+		return nil, err
+	}
 	if len(cpuPercent) > 0 {
 		metrics.CPU.Percent = cpuPercent[0]
 	}
-	metrics.CPU.PerCPUPercent = cpuPercent
 
 	cpuInfo, err := cpu.InfoWithContext(ctx)
 	if err == nil {
@@ -181,19 +195,8 @@ func CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	ignoredMounts := map[string]bool{
-		"/boot/efi": true,
-		"/boot":     true,
-		"/run":      true,
-		"/run/lock": true,
-		"/snap":     true,
-		"/sys":      true,
-		"/proc":     true,
-		"/dev":      true,
-		"/dev/shm":  true,
-	}
 	for _, part := range diskParts {
-		if ignoredMounts[part.Mountpoint] {
+		if config.IsIgnoredMount(part.Mountpoint) {
 			continue
 		}
 		usage, err := disk.UsageWithContext(ctx, part.Mountpoint)
@@ -214,16 +217,8 @@ func CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	ignoredIfaces := map[string]bool{
-		"lo":         true,
-		"virbr":      true,
-		"docker0":    true,
-		"br-":        true,
-		"veth":       true,
-		"tailscale0": true,
-	}
 	for _, stat := range netStats {
-		if ignoredIfaces[stat.Name] || strings.HasPrefix(stat.Name, "br-") || strings.HasPrefix(stat.Name, "veth") || strings.HasPrefix(stat.Name, "virbr") {
+		if config.IsIgnoredNetworkInterface(stat.Name) {
 			continue
 		}
 		metrics.Network = append(metrics.Network, NetworkStats{

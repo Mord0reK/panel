@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -29,7 +29,7 @@ const updateCheckConcurrency = 4
 var backendURL string
 
 func generateAgentUUID(hostID string) string {
-	hash := sha1.Sum([]byte(hostID))
+	hash := sha256.Sum256([]byte(hostID))
 	return hex.EncodeToString(hash[:])
 }
 

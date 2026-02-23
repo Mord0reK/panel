@@ -4,7 +4,7 @@ import { useMemo, useRef, useEffect } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 
-import { formatTimestamp } from '@/lib/formatters'
+import { formatTimestamp, formatBitsPerSec } from '@/lib/formatters'
 import type { LiveServerHost } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -42,6 +42,10 @@ function fmtBytesPerSec(v: number): string {
   if (v < k * k) return `${(v / k).toFixed(2)} KB/s`
   if (v < k * k * k) return `${(v / (k * k)).toFixed(2)} MB/s`
   return `${(v / (k * k * k)).toFixed(2)} GB/s`
+}
+
+function fmtBitsPerSec(v: number): string {
+  return formatBitsPerSec(v)
 }
 
 // ---------------------------------------------------------------------------
@@ -102,8 +106,8 @@ const CHART_CONFIGS: Record<LiveChartType, ChartConfig> = {
     fields: ['net_rx_bytes_per_sec', 'net_tx_bytes_per_sec'],
     seriesNames: ['Odebrane', 'Wysłane'],
     colors: ['#38bdf8', '#fb923c'],
-    tooltipFormatter: fmtBytesPerSec,
-    yAxisFormatter: fmtBytesPerSec,
+    tooltipFormatter: fmtBitsPerSec,
+    yAxisFormatter: fmtBitsPerSec,
     yMin: 0,
   },
 }

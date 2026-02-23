@@ -59,6 +59,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <ServerNavList />
           </SidebarGroupContent>
+          <SidebarGroupLabel>Usługi</SidebarGroupLabel>
         </SidebarGroup>
       </SidebarContent>
 

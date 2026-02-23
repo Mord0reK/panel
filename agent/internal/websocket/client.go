@@ -12,10 +12,8 @@ import (
 )
 
 const (
-	reconnectInitialDelay = 1 * time.Second
-	reconnectMaxDelay     = 30 * time.Second
-	pongWait              = 60 * time.Second
-	pingPeriod            = (pongWait * 9) / 10
+	pongWait   = 60 * time.Second
+	pingPeriod = (pongWait * 9) / 10
 )
 
 type Client struct {
@@ -58,33 +56,20 @@ func (c *Client) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) reconnect(ctx context.Context) {
-	delay := reconnectInitialDelay
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(delay):
-		}
-
-		log.Printf("Attempting to reconnect to %s...", c.url)
-
-		err := c.Connect(ctx)
-		if err != nil {
-			log.Printf("Reconnect failed: %v", err)
-			delay = delay * 2
-			if delay > reconnectMaxDelay {
-				delay = reconnectMaxDelay
-			}
-			continue
-		}
-
-		log.Printf("WebSocket reconnected to %s", c.url)
-		return
-	}
+func (c *Client) SendMessage(msgType string, data interface{}) error {
+	return c.send(data)
 }
 
-func (c *Client) SendMessage(msgType string, data interface{}) error {
+func (c *Client) SendAuth(uuid string, info AuthInfo) error {
+	msg := AuthMessage{
+		Type: "auth",
+		UUID: uuid,
+		Info: info,
+	}
+	return c.send(msg)
+}
+
+func (c *Client) send(data interface{}) error {
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
@@ -108,41 +93,6 @@ func (c *Client) SendMessage(msgType string, data interface{}) error {
 			c.conn = nil
 		}
 		return fmt.Errorf("failed to write message: %w", err)
-	}
-
-	return nil
-}
-
-func (c *Client) SendAuth(uuid string, info AuthInfo) error {
-	msg := AuthMessage{
-		Type: "auth",
-		UUID: uuid,
-		Info: info,
-	}
-
-	dataBytes, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal auth message: %w", err)
-	}
-
-	c.closeMu.Lock()
-	defer c.closeMu.Unlock()
-
-	if c.closed || !c.connected || c.conn == nil {
-		return fmt.Errorf("not connected")
-	}
-
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-
-	err = c.conn.WriteMessage(websocket.TextMessage, dataBytes)
-	if err != nil {
-		c.connected = false
-		if c.conn != nil {
-			c.conn.Close()
-			c.conn = nil
-		}
-		return fmt.Errorf("failed to write auth message: %w", err)
 	}
 
 	return nil

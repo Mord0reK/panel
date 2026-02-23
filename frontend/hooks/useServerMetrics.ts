@@ -14,6 +14,7 @@ import type {
 import { normalizeLiveHost, normalizeLiveContainer } from '@/types'
 
 const MAX_BUFFER_SIZE = 65
+const CONTAINER_MISSING_GRACE_TICKS = 3
 
 export interface ServerMetricsState {
   /** Ostatnie 60 punktów hosta do wyświetlenia (snake_case) */
@@ -47,6 +48,7 @@ export function useServerMetrics(
   const containerBufferRef = useRef<Map<string, LiveServerContainer[]>>(
     new Map()
   )
+  const missingContainerTicksRef = useRef<Map<string, number>>(new Map())
 
   // Reset buffera gdy uuid lub enabled się zmienia
   useEffect(() => {
@@ -54,6 +56,7 @@ export function useServerMetrics(
     setHostPoints([])
     setContainerPoints(new Map())
     containerBufferRef.current = new Map()
+    missingContainerTicksRef.current = new Map()
     lastPrefillTimestampRef.current = 0
   }, [uuid, enabled])
 
@@ -79,6 +82,7 @@ export function useServerMetrics(
         // Prefill kontenerów
         if ((data.containers ?? []).length > 0) {
           const buf = containerBufferRef.current
+          const missingTicks = missingContainerTicksRef.current
           for (const c of data.containers!) {
             const mapped: LiveServerContainer[] = (c.points as RawContainerMetricPoint[]).map(
               (p) => ({
@@ -97,6 +101,7 @@ export function useServerMetrics(
               c.container_id,
               mapped.length > MAX_BUFFER_SIZE ? mapped.slice(-MAX_BUFFER_SIZE) : mapped,
             )
+            missingTicks.set(c.container_id, 0)
           }
           if (!cancelled) setContainerPoints(new Map(buf))
         }
@@ -140,31 +145,55 @@ export function useServerMetrics(
 
     // Host — pomijamy punkty już uwzględnione w prefill
     const normalizedHost = normalizeLiveHost(event.host)
-    if (normalizedHost.timestamp <= lastPrefillTimestampRef.current) return
-
-    setHostPoints((prev) => {
-      const next = [...prev, normalizedHost]
-      return next.length > MAX_BUFFER_SIZE
-        ? next.slice(next.length - MAX_BUFFER_SIZE)
-        : next
-    })
+    if (normalizedHost.timestamp > lastPrefillTimestampRef.current) {
+      setHostPoints((prev) => {
+        const next = [...prev, normalizedHost]
+        return next.length > MAX_BUFFER_SIZE
+          ? next.slice(next.length - MAX_BUFFER_SIZE)
+          : next
+      })
+    }
 
     // Containers
     if (event.containers && Array.isArray(event.containers)) {
       const buf = containerBufferRef.current
+      const missingTicks = missingContainerTicksRef.current
+      const seenContainerIDs = new Set<string>()
 
       for (const rawContainer of event.containers) {
-        const normalized = normalizeLiveContainer(rawContainer)
         const key = rawContainer.ContainerID
         if (!key) continue
+        seenContainerIDs.add(key)
+        missingTicks.delete(key)
+
+        const normalized = normalizeLiveContainer(rawContainer)
         const existing = buf.get(key) ?? []
-        const next = [...existing, normalized]
+
+        const lastPoint = existing[existing.length - 1]
+        const next =
+          lastPoint && lastPoint.timestamp === normalized.timestamp
+            ? [...existing.slice(0, -1), normalized]
+            : [...existing, normalized]
+
         buf.set(
           key,
           next.length > MAX_BUFFER_SIZE
             ? next.slice(next.length - MAX_BUFFER_SIZE)
             : next
         )
+      }
+
+      for (const key of Array.from(buf.keys())) {
+        if (seenContainerIDs.has(key)) continue
+
+        const missedTicks = (missingTicks.get(key) ?? 0) + 1
+        if (missedTicks >= CONTAINER_MISSING_GRACE_TICKS) {
+          buf.delete(key)
+          missingTicks.delete(key)
+          continue
+        }
+
+        missingTicks.set(key, missedTicks)
       }
 
       setContainerPoints(new Map(buf))
