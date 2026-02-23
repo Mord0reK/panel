@@ -6,8 +6,9 @@ type HostMetricPoint struct {
 	Timestamp int64
 	CPU       float64
 
-	MemUsed    uint64
-	MemPercent float64
+	MemUsed     uint64
+	MemPercent  float64
+	MemoryTotal uint64
 
 	DiskReadBytesPerSec  uint64
 	DiskWriteBytesPerSec uint64

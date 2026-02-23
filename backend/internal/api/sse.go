@@ -52,10 +52,12 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 			}
 
 			type serverLive struct {
-				UUID     string  `json:"uuid"`
-				Hostname string  `json:"hostname"`
-				CPU      float64 `json:"cpu"`
-				Memory   uint64  `json:"memory"`
+				UUID        string  `json:"uuid"`
+				Hostname    string  `json:"hostname"`
+				CPU         float64 `json:"cpu"`
+				Memory      uint64  `json:"memory"`
+				MemPercent  float64 `json:"mem_percent"`
+				MemoryTotal uint64  `json:"memory_total"`
 
 				DiskUsedPercent      float64 `json:"disk_used_percent"`
 				DiskReadBytesPerSec  uint64  `json:"disk_read_bytes_per_sec"`
@@ -76,10 +78,12 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 				}
 
 				liveData = append(liveData, serverLive{
-					UUID:     s.UUID,
-					Hostname: s.Hostname,
-					CPU:      host.CPU,
-					Memory:   host.MemUsed,
+					UUID:        s.UUID,
+					Hostname:    s.Hostname,
+					CPU:         host.CPU,
+					Memory:      host.MemUsed,
+					MemPercent:  host.MemPercent,
+					MemoryTotal: host.MemoryTotal,
 
 					DiskUsedPercent:      host.DiskUsedPercent,
 					DiskReadBytesPerSec:  host.DiskReadBytesPerSec,

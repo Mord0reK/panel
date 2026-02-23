@@ -187,6 +187,8 @@ export interface LiveServerSnapshot {
   hostname: string
   cpu: number
   memory: number // mem_used w bajtach
+  mem_percent: number
+  memory_total: number
   disk_used_percent: number
   disk_read_bytes_per_sec: number
   disk_write_bytes_per_sec: number

@@ -174,6 +174,7 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 						CPU:                  m.Host.CPU,
 						MemUsed:              m.Host.MemUsed,
 						MemPercent:           m.Host.MemPercent,
+						MemoryTotal:          m.Host.MemoryTotal,
 						DiskReadBytesPerSec:  m.Host.DiskReadBytesPerSec,
 						DiskWriteBytesPerSec: m.Host.DiskWriteBytesPerSec,
 						NetRxBytesPerSec:     m.Host.NetRxBytesPerSec,

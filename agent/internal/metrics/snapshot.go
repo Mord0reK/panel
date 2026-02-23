@@ -19,8 +19,9 @@ type HostSnapshot struct {
 	Timestamp int64   `json:"timestamp"`
 	CPU       float64 `json:"cpu_percent"`
 
-	MemUsed    uint64  `json:"mem_used"`
-	MemPercent float64 `json:"mem_percent"`
+	MemUsed     uint64  `json:"mem_used"`
+	MemPercent  float64 `json:"mem_percent"`
+	MemoryTotal uint64  `json:"memory_total"`
 
 	DiskReadBytesPerSec  uint64  `json:"disk_read_bytes_per_sec"`
 	DiskWriteBytesPerSec uint64  `json:"disk_write_bytes_per_sec"`
@@ -97,6 +98,7 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 		CPU:                 sysMetrics.CPU.Percent,
 		MemUsed:             sysMetrics.Memory.Used,
 		MemPercent:          sysMetrics.Memory.Percent,
+		MemoryTotal:         sysMetrics.Memory.Total,
 		DiskReadBytesTotal:  diskReadTotal,
 		DiskWriteBytesTotal: diskWriteTotal,
 		NetRxBytesTotal:     netRxTotal,
