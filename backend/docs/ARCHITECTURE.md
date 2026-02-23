@@ -20,3 +20,21 @@
 
 System używa SQLite z włączonym trybem WAL dla lepszej wydajności przy jednoczesnych zapisach i odczytach.
 Główne tabele: `users`, `servers`, `containers`, `container_events`, oraz 10 tabel metryk o różnej rozdzielczości (`metrics_5s` do `metrics_12h`).
+
+## System Usług Modularnych (Modular Services)
+
+System pozwala na integrację zewnętrznych usług (np. AdGuard Home, Cloudflare) bezpośrednio w panelu.
+
+1. **Interfejs Service**: Każda usługa implementuje standardowy interfejs Go, definiujący meta-dane, schemat konfiguracji oraz obsługę zapytań proxy.
+2. **Rejestracja**: Usługi są rejestrowane w centralnym  przy starcie aplikacji.
+3. **Konfiguracja**: Ustawienia usług (URL, poświadczenia) są przechowywane w tabeli `service_configs`. Wrażliwe dane są szyfrowane za pomocą **AES-256-GCM**.
+4. **Proxy API**: Backend działa jako pośrednik (proxy) dla zapytań z frontendu, automatycznie dołączając wymagane dane uwierzytelniające do zapytań kierowanych do zewnętrznych usług.
+
+## System Usług Modularnych (Modular Services)
+
+System pozwala na integrację zewnętrznych usług (np. AdGuard Home, Cloudflare) bezpośrednio w panelu.
+
+1. **Interfejs Service**: Każda usługa implementuje standardowy interfejs Go, definiujący meta-dane, schemat konfiguracji oraz obsługę zapytań proxy.
+2. **Rejestracja**: Usługi są rejestrowane w centralnym `Registry` przy starcie aplikacji.
+3. **Konfiguracja**: Ustawienia usług (URL, poświadczenia) są przechowywane w tabeli `service_configs`. Wrażliwe dane są szyfrowane za pomocą **AES-256-GCM**.
+4. **Proxy API**: Backend działa jako pośrednik (proxy) dla zapytań z frontendu, automatycznie dołączając wymagane dane uwierzytelniające do zapytań kierowanych do zewnętrznych usług.
