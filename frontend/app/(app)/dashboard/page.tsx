@@ -73,13 +73,15 @@ export default function DashboardPage() {
           Brak serwerów. Podłącz agenta, aby rozpocząć monitorowanie.
         </p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
           {servers.map((server) => (
             <ServerCard
               key={server.uuid}
               hostname={server.hostname}
               uuid={server.uuid}
               snapshot={snapshots.get(server.uuid) ?? null}
+              icon={server.icon}
+              displayName={server.display_name}
             />
           ))}
         </div>

@@ -169,6 +169,7 @@ export function LiveChart({ points, type }: LiveChartProps) {
       },
       tooltip: {
         trigger: 'axis',
+        alwaysShowContent: true,
         backgroundColor: '#18181b',
         borderColor: '#27272a',
         textStyle: { color: '#e4e4e7', fontSize: 12 },

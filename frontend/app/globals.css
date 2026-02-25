@@ -124,3 +124,35 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .animate-collapsible-content {
+    overflow: hidden;
+  }
+
+  .animate-collapsible-content[data-state='open'] {
+    animation: collapsible-open 200ms ease-out;
+  }
+
+  .animate-collapsible-content[data-state='closed'] {
+    animation: collapsible-close 200ms ease-out;
+  }
+
+  @keyframes collapsible-open {
+    from {
+      max-height: 0;
+    }
+    to {
+      max-height: 500px;
+    }
+  }
+
+  @keyframes collapsible-close {
+    from {
+      max-height: 500px;
+    }
+    to {
+      max-height: 0;
+    }
+  }
+}

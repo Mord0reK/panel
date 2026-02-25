@@ -21,6 +21,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import { ServerIconDisplay } from '@/components/servers/ServerIconDisplay'
 import type { Server } from '@/types'
@@ -52,10 +53,15 @@ interface ServerNavItemProps {
 
 export function ServerNavItem({ server }: ServerNavItemProps) {
   const pathname = usePathname()
+  const { setOpenMobile } = useSidebar()
   const basePath = `/servers/${server.uuid}`
   const isServerActive = pathname.startsWith(basePath)
   const displayName = server.display_name || server.hostname
   const isOffline = !server.online
+
+  function handleLinkClick() {
+    setOpenMobile(false)
+  }
 
   return (
     <Collapsible asChild defaultOpen={isServerActive} className="group/collapsible">
@@ -94,7 +100,7 @@ export function ServerNavItem({ server }: ServerNavItemProps) {
                     aria-disabled={item.disabled}
                     className={item.disabled ? 'pointer-events-none opacity-50' : ''}
                   >
-                    <Link href={item.disabled ? '#' : href}>
+                    <Link href={item.disabled ? '#' : href} onClick={handleLinkClick}>
                       <item.icon className="size-4" />
                       <span>{item.label}</span>
                     </Link>

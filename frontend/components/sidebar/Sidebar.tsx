@@ -17,14 +17,20 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  useSidebar,
 } from '@/components/ui/sidebar'
 
 export function AppSidebar() {
   const router = useRouter()
+  const { setOpenMobile } = useSidebar()
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
     router.push('/login')
+  }
+
+  function handleLinkClick() {
+    setOpenMobile(false)
   }
 
   return (
@@ -34,7 +40,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link href="/dashboard">
+              <Link href="/dashboard" onClick={handleLinkClick}>
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                   <LayoutDashboardIcon className="size-4" />
                 </div>
@@ -68,7 +74,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip="Ustawienia">
-              <Link href="/settings/servers">
+              <Link href="/settings/servers" onClick={handleLinkClick}>
                 <SettingsIcon className="size-4" />
                 <span>Ustawienia</span>
               </Link>
