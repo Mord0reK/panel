@@ -10,6 +10,13 @@ jest.mock('@/components/containers/ContainerActions', () => ({
   ),
 }))
 
+// Mock api to avoid real HTTP calls in unit tests
+jest.mock('@/lib/api', () => ({
+  api: {
+    serverCommand: jest.fn().mockResolvedValue({}),
+  },
+}))
+
 function makeContainer(overrides: Partial<Container> = {}): Container {
   return {
     id: 1,
@@ -19,6 +26,7 @@ function makeContainer(overrides: Partial<Container> = {}): Container {
     image: 'nginx:latest',
     project: 'web',
     service: 'frontend',
+    state: 'running',
     first_seen: '2025-01-01T00:00:00Z',
     last_seen: new Date().toISOString(),
     ...overrides,
@@ -54,17 +62,6 @@ describe('ContainersTable', () => {
     expect(screen.getByText('redis:7')).toBeInTheDocument()
   })
 
-  it('renders project name', () => {
-    render(
-      <ContainersTable
-        uuid="uuid-1"
-        containers={[makeContainer({ project: 'myproject' })]}
-      />,
-    )
-
-    expect(screen.getByText('myproject')).toBeInTheDocument()
-  })
-
   it('renders service name', () => {
     render(
       <ContainersTable
@@ -74,17 +71,6 @@ describe('ContainersTable', () => {
     )
 
     expect(screen.getByText('api')).toBeInTheDocument()
-  })
-
-  it('shows dash for empty project', () => {
-    render(
-      <ContainersTable
-        uuid="uuid-1"
-        containers={[makeContainer({ project: '' })]}
-      />,
-    )
-
-    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders actions for each container', () => {
@@ -111,10 +97,49 @@ describe('ContainersTable', () => {
     )
 
     expect(screen.getByText('Nazwa')).toBeInTheDocument()
+    expect(screen.getByText('Stan')).toBeInTheDocument()
     expect(screen.getByText('Obraz')).toBeInTheDocument()
-    expect(screen.getByText('Projekt')).toBeInTheDocument()
     expect(screen.getByText('Serwis')).toBeInTheDocument()
     expect(screen.getByText('Akcje')).toBeInTheDocument()
+  })
+
+  it('renders project name as group header', () => {
+    render(
+      <ContainersTable
+        uuid="uuid-1"
+        containers={[makeContainer({ project: 'myproject' })]}
+      />,
+    )
+
+    // project name appears in group header (uppercase via CSS, but text content is the same)
+    expect(screen.getByText('myproject')).toBeInTheDocument()
+  })
+
+  it('renders standalone header for containers without project', () => {
+    render(
+      <ContainersTable
+        uuid="uuid-1"
+        containers={[makeContainer({ project: '' })]}
+      />,
+    )
+
+    expect(screen.getByText('Standalone')).toBeInTheDocument()
+  })
+
+  it('groups containers by project', () => {
+    render(
+      <ContainersTable
+        uuid="uuid-1"
+        containers={[
+          makeContainer({ container_id: 'c1', name: 'app-1', project: 'proj-a' }),
+          makeContainer({ container_id: 'c2', id: 2, name: 'app-2', project: 'proj-b' }),
+          makeContainer({ container_id: 'c3', id: 3, name: 'app-3', project: 'proj-a' }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('proj-a')).toBeInTheDocument()
+    expect(screen.getByText('proj-b')).toBeInTheDocument()
   })
 
   it('renders multiple containers as separate rows', () => {

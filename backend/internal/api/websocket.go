@@ -225,8 +225,10 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 					}
 				}
 
-				// Remove containers that the agent no longer knows about (docker rm'd)
-				if err := models.DeleteNotInList(h.db, agent.UUID, activeIDs); err != nil {
+				// Mark containers as "removed" when the agent no longer reports them
+				// (e.g. docker compose down). They stay visible in the UI as greyed-out
+				// entries until the user manually deletes them or the container comes back.
+				if err := models.MarkRemovedNotInList(h.db, agent.UUID, activeIDs); err != nil {
 					log.Printf("WebSocket: failed to sync container list for agent %s: %v", agent.UUID, err)
 				}
 

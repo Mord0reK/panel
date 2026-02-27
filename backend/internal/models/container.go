@@ -73,13 +73,14 @@ func (c *Container) Upsert(db *sql.DB) error {
 	return err
 }
 
-// DeleteNotInList removes containers for the given agent that are no longer
-// reported by the agent (i.e. removed via docker rm / docker compose down --rmi).
-// Stopped containers are still reported by the agent (All=true) and will not be deleted.
-func DeleteNotInList(db *sql.DB, agentUUID string, activeIDs []string) error {
+// MarkRemovedNotInList marks containers as "removed" for the given agent when
+// they are no longer reported by the agent (e.g. docker compose down).
+// This keeps them visible in the UI (greyed out) instead of deleting them.
+// When the container reappears (docker compose up), Upsert will restore its real state.
+func MarkRemovedNotInList(db *sql.DB, agentUUID string, activeIDs []string) error {
 	if len(activeIDs) == 0 {
-		// Agent sent an empty list — clear all containers for this agent.
-		_, err := db.Exec(`DELETE FROM containers WHERE agent_uuid = ?`, agentUUID)
+		// Agent sent an empty list — mark all containers for this agent as removed.
+		_, err := db.Exec(`UPDATE containers SET state = 'removed' WHERE agent_uuid = ?`, agentUUID)
 		return err
 	}
 
@@ -93,7 +94,7 @@ func DeleteNotInList(db *sql.DB, agentUUID string, activeIDs []string) error {
 	}
 
 	query := fmt.Sprintf(
-		`DELETE FROM containers WHERE agent_uuid = ? AND container_id NOT IN (%s)`,
+		`UPDATE containers SET state = 'removed' WHERE agent_uuid = ? AND container_id NOT IN (%s)`,
 		placeholders,
 	)
 	_, err := db.Exec(query, args...)
