@@ -33,7 +33,8 @@ type SystemMetrics struct {
 
 type CPUStats struct {
 	Percent       float64   `json:"percent"`
-	Count         int       `json:"count"`
+	Cores         int       `json:"cores"`
+	Threads       int       `json:"threads"`
 	PerCPUPercent []float64 `json:"per_cpu_percent"`
 	User          float64   `json:"-"`
 	System        float64   `json:"-"`
@@ -167,9 +168,13 @@ func CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 		metrics.CPU.PerCPUPercent = make([]float64, len(times))
 	}
 
-	cpuInfo, err := cpu.InfoWithContext(ctx)
+	cpuPhysical, err := cpu.CountsWithContext(ctx, false)
 	if err == nil {
-		metrics.CPU.Count = len(cpuInfo)
+		metrics.CPU.Cores = cpuPhysical
+	}
+	cpuLogical, err := cpu.CountsWithContext(ctx, true)
+	if err == nil {
+		metrics.CPU.Threads = cpuLogical
 	}
 
 	memStats, err := mem.VirtualMemoryWithContext(ctx)

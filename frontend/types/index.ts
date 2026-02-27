@@ -25,6 +25,7 @@ export interface Server {
   online?: boolean      // computed by backend (last_seen < 30s), may be absent in old responses
   cpu_model: string
   cpu_cores: number
+  cpu_threads: number
   memory_total: number
   platform: string
   kernel: string

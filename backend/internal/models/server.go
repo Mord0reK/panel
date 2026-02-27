@@ -19,6 +19,7 @@ type Server struct {
 	Online       bool      `json:"online"` // computed from last_seen, not stored
 	CPUModel     string    `json:"cpu_model"`
 	CPUCores     int       `json:"cpu_cores"`
+	CPUThreads   int       `json:"cpu_threads"`
 	MemoryTotal  uint64    `json:"memory_total"`
 	Platform     string    `json:"platform"`
 	Kernel       string    `json:"kernel"`
@@ -89,10 +90,10 @@ func (s *Server) Upsert(db *sql.DB) error {
 		s.Status = existing.Status
 		_, err := db.Exec(`
 			UPDATE servers SET
-				hostname=?, cpu_model=?, cpu_cores=?, memory_total=?,
+				hostname=?, cpu_model=?, cpu_cores=?, cpu_threads=?, memory_total=?,
 				platform=?, kernel=?, architecture=?, last_seen=CURRENT_TIMESTAMP
 			WHERE uuid=?`,
-			s.Hostname, s.CPUModel, s.CPUCores, s.MemoryTotal,
+			s.Hostname, s.CPUModel, s.CPUCores, s.CPUThreads, s.MemoryTotal,
 			s.Platform, s.Kernel, s.Architecture, s.UUID)
 		return err
 	} else if err == sql.ErrNoRows {
@@ -100,10 +101,10 @@ func (s *Server) Upsert(db *sql.DB) error {
 		s.Status = "active"
 		_, err := db.Exec(`
 			INSERT INTO servers (
-				uuid, hostname, approved, status, cpu_model, cpu_cores, memory_total,
+				uuid, hostname, approved, status, cpu_model, cpu_cores, cpu_threads, memory_total,
 				platform, kernel, architecture, last_seen
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-			s.UUID, s.Hostname, true, "active", s.CPUModel, s.CPUCores, s.MemoryTotal,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+			s.UUID, s.Hostname, true, "active", s.CPUModel, s.CPUCores, s.CPUThreads, s.MemoryTotal,
 			s.Platform, s.Kernel, s.Architecture)
 		return err
 	}
@@ -114,7 +115,7 @@ func (s *Server) Upsert(db *sql.DB) error {
 func (s *Server) GetAll(db *sql.DB) ([]Server, error) {
 	rows, err := db.Query(`
 		SELECT uuid, hostname, display_name, icon, status, approved,
-		       cpu_model, cpu_cores, memory_total, platform, kernel, architecture, last_seen, created_at
+		       cpu_model, cpu_cores, cpu_threads, memory_total, platform, kernel, architecture, last_seen, created_at
 		FROM servers ORDER BY hostname ASC`)
 	if err != nil {
 		return nil, err
@@ -126,12 +127,12 @@ func (s *Server) GetAll(db *sql.DB) ([]Server, error) {
 		var srv Server
 		var hostname, cpuModel, platform, kernel, arch sql.NullString
 		var displayName, icon, status sql.NullString
-		var cpuCores, memTotal sql.NullInt64
+		var cpuCores, cpuThreads, memTotal sql.NullInt64
 		var lastSeen, createdAt sql.NullTime
 
 		err := rows.Scan(
 			&srv.UUID, &hostname, &displayName, &icon, &status, &srv.Approved,
-			&cpuModel, &cpuCores, &memTotal,
+			&cpuModel, &cpuCores, &cpuThreads, &memTotal,
 			&platform, &kernel, &arch,
 			&lastSeen, &createdAt,
 		)
@@ -148,6 +149,7 @@ func (s *Server) GetAll(db *sql.DB) ([]Server, error) {
 		}
 		srv.CPUModel = cpuModel.String
 		srv.CPUCores = int(cpuCores.Int64)
+		srv.CPUThreads = int(cpuThreads.Int64)
 		srv.MemoryTotal = uint64(memTotal.Int64)
 		srv.Platform = platform.String
 		srv.Kernel = kernel.String

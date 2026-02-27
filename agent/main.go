@@ -206,7 +206,7 @@ func runWebSocket() {
 	authInfo := websocket.AuthInfo{
 		Hostname:     sysInfo.Hostname,
 		CPUModel:     sysInfo.CPU.ModelName,
-		CPUCores:     sysInfo.CPU.LogicalCores,
+		CPUCores:     sysInfo.CPU.PhysicalCores,
 		MemoryTotal:  sysInfo.Memory.Total,
 		Platform:     sysInfo.Platform,
 		Kernel:       sysInfo.Kernel,

@@ -22,6 +22,7 @@ type AgentInfo struct {
 	Hostname     string `json:"hostname"`
 	CPUModel     string `json:"cpu_model"`
 	CPUCores     int    `json:"cpu_cores"`
+	CPUThreads   int    `json:"cpu_threads"`
 	MemoryTotal  uint64 `json:"memory_total"`
 	Platform     string `json:"platform"`
 	Kernel       string `json:"kernel"`
