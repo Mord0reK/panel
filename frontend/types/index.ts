@@ -42,6 +42,7 @@ export interface Container {
   image: string
   project: string
   service: string
+  state: string // e.g. "running", "exited", "paused", "unknown"
   first_seen: string // ISO 8601
   last_seen: string // ISO 8601
 }
@@ -282,6 +283,8 @@ export type MetricRange =
   | '7d'
   | '15d'
   | '30d'
+
+export type MetricStat = 'min' | 'avg' | 'max'
 
 /** Type guard — czy punkt jest surowy (range=1m) */
 export function isRawHostPoint(

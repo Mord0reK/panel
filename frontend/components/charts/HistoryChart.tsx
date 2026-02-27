@@ -5,7 +5,7 @@ import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 
 import { formatTimestamp, formatBitsPerSec } from '@/lib/formatters'
-import type { AggregatedHostMetricPoint, MetricRange } from '@/types'
+import type { AggregatedHostMetricPoint, MetricRange, MetricStat } from '@/types'
 
 // ---------------------------------------------------------------------------
 // Typy wykresu — takie same jak LiveChart
@@ -20,6 +20,8 @@ interface HistoryChartProps {
   type: HistoryChartType
   /** Zakres metryk — wpływa na format osi X */
   range: MetricRange
+  /** Statystyka do wyświetlenia: min / avg / max (domyślnie avg) */
+  stat?: MetricStat
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +59,6 @@ interface SeriesFieldDef {
   name: string
   color: string
 }
-
 interface HistoryChartConfig {
   title: string
   series: SeriesFieldDef[]
@@ -117,6 +118,7 @@ const CONFIGS: Record<HistoryChartType, HistoryChartConfig> = {
       },
     ],
     tooltipFormatter: fmtBytesPerSec,
+    yAxisFormatter: fmtBytesPerSec,
     yAxisLabel: '',
     yMin: 0,
   },
@@ -156,6 +158,7 @@ const CONFIGS: Record<HistoryChartType, HistoryChartConfig> = {
       },
     ],
     tooltipFormatter: fmtBitsPerSec,
+    yAxisFormatter: fmtBitsPerSec,
     yAxisLabel: '',
     yMin: 0,
   },
@@ -165,64 +168,47 @@ const CONFIGS: Record<HistoryChartType, HistoryChartConfig> = {
 // Komponent
 // ---------------------------------------------------------------------------
 
-export function HistoryChart({ points, type, range }: HistoryChartProps) {
+export function HistoryChart({ points, type, range, stat = 'avg' }: HistoryChartProps) {
   const config = CONFIGS[type]
 
   const option = useMemo<EChartsOption>(() => {
     const timestamps = points.map((p) => formatTimestamp(p.timestamp, range))
     const showLegend = config.series.length > 1
 
-    // Budowanie serii — avg linia + opcjonalny min/max area fill
+    // Budowanie serii — tylko wybrana statystyka (min/avg/max)
     const echartsSeries: EChartsOption['series'] = []
     for (const def of config.series) {
-      // Linia avg
+      // Wybierz pole odpowiednie dla statystyki
+      // Jeśli dana seria nie ma pola min/max (np. disk_read), fallback do avg
+      let fieldKey: keyof AggregatedHostMetricPoint
+      if (stat === 'min' && def.min) {
+        fieldKey = def.min
+      } else if (stat === 'max' && def.max) {
+        fieldKey = def.max
+      } else {
+        fieldKey = def.avg
+      }
+
       echartsSeries.push({
         name: def.name,
         type: 'line',
-        data: points.map((p) => p[def.avg] as number),
+        data: points.map((p) => p[fieldKey] as number),
         smooth: true,
         showSymbol: false,
         lineStyle: { width: 2 },
+        areaStyle: { opacity: 0.08, color: def.color },
         color: def.color,
         z: 2,
       })
-
-      // Min/max area fill (band)
-      if (def.min && def.max) {
-        // Max (górna granica)
-        echartsSeries.push({
-          name: `${def.name} max`,
-          type: 'line',
-          data: points.map((p) => p[def.max!] as number),
-          smooth: true,
-          showSymbol: false,
-          lineStyle: { width: 0 },
-          areaStyle: { opacity: 0.12, color: def.color },
-          stack: `band-${def.name}`,
-          z: 1,
-          silent: true,
-        })
-        // Min (dolna granica — odejmowana od max przez stack)
-        echartsSeries.push({
-          name: `${def.name} min`,
-          type: 'line',
-          data: points.map((p) => p[def.min!] as number),
-          smooth: true,
-          showSymbol: false,
-          lineStyle: { width: 0 },
-          areaStyle: { opacity: 0 },
-          stack: `band-${def.name}`,
-          z: 1,
-          silent: true,
-        })
-      }
     }
+
+    const statLabel = stat === 'min' ? 'Min' : stat === 'max' ? 'Max' : 'Avg'
 
     return {
       backgroundColor: 'transparent',
-      grid: { top: 36, right: 16, bottom: 28, left: 56 },
+      grid: { top: 36, right: 16, bottom: 28, left: 72 },
       title: {
-        text: config.title,
+        text: `${config.title} (${statLabel})`,
         textStyle: { color: '#e4e4e7', fontSize: 14, fontWeight: 500 },
         left: 8,
         top: 4,
@@ -247,7 +233,7 @@ export function HistoryChart({ points, type, range }: HistoryChartProps) {
           visible.sort((a, b) => b.value - a.value)
           let html = `<div style="margin-bottom:4px">${visible[0]?.axisValue ?? ''}</div>`
           for (const item of visible) {
-            html += `<div>${item.seriesName}: <b>${config.tooltipFormatter(item.value)}</b></div>`
+            html += `<div>${item.seriesName} (${statLabel}): <b>${config.tooltipFormatter(item.value)}</b></div>`
           }
           return html
         },
@@ -275,13 +261,17 @@ export function HistoryChart({ points, type, range }: HistoryChartProps) {
         axisLabel: {
           color: '#71717a',
           fontSize: 10,
-          formatter: config.yAxisLabel === '%' ? '{value}%' : undefined,
+          formatter: config.yAxisFormatter
+            ? (v: number) => config.yAxisFormatter!(v)
+            : config.yAxisLabel === '%'
+              ? '{value}%'
+              : undefined,
         },
         splitLine: { lineStyle: { color: '#27272a' } },
       },
       series: echartsSeries,
     }
-  }, [points, config, range])
+  }, [points, config, range, stat])
 
   return (
     <ReactECharts

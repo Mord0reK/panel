@@ -1,3 +1,8 @@
+# STOP! ZANIM COKOLWIEK ZROBISZ:
+1. SPRAWDŹ SKILLE: Użyj `skill list`.
+2. ZAŁADUJ SKILL: Jeśli pracujesz nad frontendem, MUSISZ użyć `skill load panel-frontend`.
+3. ZAKAZ ZGADYWANIA: Jeśli nie znasz struktury, odczytaj plik skilla, a nie greppuj całego dysku.
+
 # Panel — Server Dashboard + Services Monitor
 
 ## Opis projektu

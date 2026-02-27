@@ -1,5 +1,6 @@
 ---
-description: "Triggeruj ZAWSZE na początku zadania, gdy trzeba zrozumieć architekturę, powiązania plików lub znaleźć miejsce dla nowej funkcji."
+name: panel-analysis
+description: Procedura głębokiej analizy repozytorium. Używaj ZAWSZE na początku pracy z nowym projektem lub modułem, aby zrozumieć architekturę, przepływ danych (SSE/WebSocket) i strukturę katalogów.
 ---
 
 # Skill: Panel — Rekonesans przed implementacją

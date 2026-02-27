@@ -15,6 +15,7 @@ import type {
   ContainerHistory,
   LiveServerHost,
   MetricRange,
+  MetricStat,
 } from '@/types'
 
 type ChartType = 'cpu' | 'ram' | 'disk' | 'disk_percent' | 'net'
@@ -34,6 +35,7 @@ const HistoryChart = dynamic(
   points: AggregatedHostMetricPoint[]
   type: ChartType
   range: MetricRange
+  stat: MetricStat
 }>
 
 const CHART_TYPES = ['cpu', 'ram', 'disk', 'disk_percent', 'net'] as const
@@ -45,6 +47,7 @@ interface MetricsGridProps {
 
 export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
   const [range, setRange] = useState<MetricRange>('1m')
+  const [stat, setStat] = useState<MetricStat>('avg')
   const isLive = range === '1m'
 
   // Live data — SSE
@@ -89,9 +92,28 @@ export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
 
   return (
     <div className="space-y-4">
-      {/* Header — dropdown + status */}
-      <div className="flex items-center gap-5">
+      {/* Header — dropdown + stat toggle + status */}
+      <div className="flex items-center gap-3">
         <RangeDropdown value={range} onChange={handleRangeChange} />
+
+        {!isLive && (
+          <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900/50 p-0.5">
+            {(['min', 'avg', 'max'] as MetricStat[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStat(s)}
+                className={[
+                  'px-3 py-1 text-xs font-medium rounded transition-colors uppercase tracking-wide',
+                  stat === s
+                    ? 'bg-zinc-700 text-zinc-100'
+                    : 'text-zinc-500 hover:text-zinc-300',
+                ].join(' ')}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
 
         {isLive && (
           <div className="flex items-center gap-2 text-xs text-zinc-500">
@@ -143,6 +165,7 @@ export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
                 points={historyPoints}
                 type={chartType}
                 range={range}
+                stat={stat}
               />
             )}
           </div>

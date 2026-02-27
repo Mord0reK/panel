@@ -192,8 +192,11 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 				}
 
 				// Process metrics
+				activeIDs := make([]string, 0, len(m.Containers))
 				for _, c := range m.Containers {
-					// Upsert container info
+					activeIDs = append(activeIDs, c.ContainerID)
+
+					// Upsert container info (running or stopped)
 					cont := models.Container{
 						AgentUUID:   agent.UUID,
 						ContainerID: c.ContainerID,
@@ -201,20 +204,30 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 						Image:       c.Image,
 						Project:     c.Project,
 						Service:     c.Service,
+						State:       c.State,
 					}
 					cont.Upsert(h.db)
 
-					point := buffer.MetricPoint{
-						Timestamp:   m.Timestamp,
-						CPU:         c.CPU,
-						MemUsed:     c.MemUsed,
-						MemPercent:  c.MemPercent,
-						DiskUsed:    c.DiskUsed,
-						DiskPercent: c.DiskPercent,
-						NetRx:       c.NetRx,
-						NetTx:       c.NetTx,
+					// Buffer metrics only for running containers (or legacy agents that don't send state).
+					// Stopped/exited containers carry zeroed stats — no point buffering them.
+					if c.State == "running" || c.State == "" {
+						point := buffer.MetricPoint{
+							Timestamp:   m.Timestamp,
+							CPU:         c.CPU,
+							MemUsed:     c.MemUsed,
+							MemPercent:  c.MemPercent,
+							DiskUsed:    c.DiskUsed,
+							DiskPercent: c.DiskPercent,
+							NetRx:       c.NetRx,
+							NetTx:       c.NetTx,
+						}
+						h.bufferManager.AddMetric(agent.UUID, c.ContainerID, point)
 					}
-					h.bufferManager.AddMetric(agent.UUID, c.ContainerID, point)
+				}
+
+				// Remove containers that the agent no longer knows about (docker rm'd)
+				if err := models.DeleteNotInList(h.db, agent.UUID, activeIDs); err != nil {
+					log.Printf("WebSocket: failed to sync container list for agent %s: %v", agent.UUID, err)
 				}
 
 				var s models.Server

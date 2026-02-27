@@ -1,5 +1,6 @@
 ---
-description: "Triggeruj ZAWSZE, gdy zadanie dotyczy zbierania metryk (CPU, RAM, Docker), modyfikacji kodu w `/agent/internal` lub protokołu komunikacji WebSocket po stronie klienta."
+name: panel-agent-go
+description: Standardy dla agenta monitorującego w Go. Obsługa zbierania metryk systemowych, integracja z Docker API, optymalizacja pętli pomiarowej oraz bezpieczne przesyłanie danych do backendu.
 ---
 
 # Skill: Panel — Agent Go (Metryki, Docker, WebSocket)
