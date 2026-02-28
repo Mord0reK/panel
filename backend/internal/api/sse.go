@@ -130,6 +130,23 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 			}
 			containersMap := h.bufferManager.GetLatestForServerAtTimestamp(uuid, host.Timestamp)
 
+			// Fetch container states from DB (one query, fast).
+			var containerModel models.Container
+			dbContainers, _ := containerModel.GetByAgent(h.db, uuid)
+			type containerDBInfo struct {
+				State  string
+				Health string
+				Status string
+			}
+			infoByID := make(map[string]containerDBInfo, len(dbContainers))
+			for _, c := range dbContainers {
+				infoByID[c.ContainerID] = containerDBInfo{
+					State:  c.State,
+					Health: c.Health,
+					Status: c.Status,
+				}
+			}
+
 			type containerLive struct {
 				ContainerID string  `json:"ContainerID"`
 				Timestamp   int64   `json:"Timestamp"`
@@ -140,6 +157,9 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 				DiskPercent float64 `json:"DiskPercent"`
 				NetRx       uint64  `json:"NetRx"`
 				NetTx       uint64  `json:"NetTx"`
+				State       string  `json:"State"`
+				Health      string  `json:"Health"`
+				Status      string  `json:"Status"`
 			}
 
 			containerSlice := make([]containerLive, 0, len(containersMap))
@@ -147,6 +167,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 				if id == models.HostMainContainerID {
 					continue
 				}
+				info := infoByID[id]
 				containerSlice = append(containerSlice, containerLive{
 					ContainerID: id,
 					Timestamp:   p.Timestamp,
@@ -157,6 +178,9 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 					DiskPercent: p.DiskPercent,
 					NetRx:       p.NetRx,
 					NetTx:       p.NetTx,
+					State:       info.State,
+					Health:      info.Health,
+					Status:      info.Status,
 				})
 			}
 
