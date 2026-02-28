@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +41,8 @@ type RealtimeContainerInfo struct {
 	Project     string  `json:"project"`
 	Service     string  `json:"service"`
 	State       string  `json:"state"`
+	Health      string  `json:"health"` // "healthy", "unhealthy", "starting", ""
+	Status      string  `json:"status"` // raw Docker status string, e.g. "Up 2 hours (healthy)"
 	Timestamp   int64   `json:"timestamp"`
 	CPU         float64 `json:"cpu_percent"`
 	MemUsed     uint64  `json:"mem_used"`
@@ -106,6 +109,30 @@ type NetworkInfo struct {
 	IPAddress   string `json:"ip_address"`
 	Gateway     string `json:"gateway"`
 	MacAddress  string `json:"mac_address"`
+}
+
+// parseHealthFromStatus extracts health status from Docker's Status string.
+// Examples: "Up 2 hours (healthy)" → "healthy"
+//
+//	"Up 3 minutes (unhealthy)" → "unhealthy"
+//	"Up 5 seconds (health: starting)" → "starting"
+//	"Up 5 hours" → ""
+func parseHealthFromStatus(status string) string {
+	start := strings.LastIndex(status, "(")
+	end := strings.LastIndex(status, ")")
+	if start == -1 || end == -1 || end <= start {
+		return ""
+	}
+	inner := strings.TrimSpace(status[start+1 : end])
+	// "health: starting" → "starting"
+	if strings.HasPrefix(inner, "health: ") {
+		inner = strings.TrimPrefix(inner, "health: ")
+	}
+	switch inner {
+	case "healthy", "unhealthy", "starting":
+		return inner
+	}
+	return ""
 }
 
 func NewDockerClient() (*client.Client, error) {
@@ -218,7 +245,7 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*
 		state := string(c.State)
 
 		wg.Add(1)
-		go func(containerID, containerName, containerImage, containerState string, labels map[string]string) {
+		go func(containerID, containerName, containerImage, containerState, containerStatus string, labels map[string]string) {
 			defer wg.Done()
 
 			name := containerName
@@ -230,6 +257,8 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*
 				ContainerID: containerID[:12],
 				Name:        name,
 				State:       containerState,
+				Health:      parseHealthFromStatus(containerStatus),
+				Status:      containerStatus,
 				Image:       containerImage,
 				Timestamp:   time.Now().Unix(),
 			}
@@ -295,7 +324,7 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*
 			}
 
 			results <- info
-		}(c.ID, c.Names[0], c.Image, state, c.Labels)
+		}(c.ID, c.Names[0], c.Image, state, string(c.Status), c.Labels)
 	}
 
 	go func() {
