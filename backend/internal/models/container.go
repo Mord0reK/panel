@@ -88,6 +88,25 @@ func (c *Container) Delete(db *sql.DB, agentUUID, containerID string) error {
 	return err
 }
 
+// DeleteBulk usuwa wiele kontenerów dla danego agenta.
+// Zwraca listy pomyślnie usuniętych ID i ID które nie dały się usunąć.
+func (c *Container) DeleteBulk(db *sql.DB, agentUUID string, ids []string) (deleted []string, failed []string) {
+	for _, id := range ids {
+		if err := c.Delete(db, agentUUID, id); err != nil {
+			failed = append(failed, id)
+		} else {
+			deleted = append(deleted, id)
+		}
+	}
+	if deleted == nil {
+		deleted = []string{}
+	}
+	if failed == nil {
+		failed = []string{}
+	}
+	return
+}
+
 // removedTTL is how long a "removed" container is kept in the database before
 // it is hard-deleted. Containers not reported by docker ps -a are unlikely to
 // come back, so we discard them after this duration to keep the UI clean.

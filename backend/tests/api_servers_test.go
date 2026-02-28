@@ -80,3 +80,32 @@ func TestServersAPI(t *testing.T) {
 	db.QueryRow("SELECT COUNT(*) FROM containers").Scan(&count)
 	assert.Equal(t, 0, count)
 }
+
+func TestDeleteContainersBulk(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	// Setup: wstaw 3 kontenery
+	_, err := db.Exec("INSERT INTO servers (uuid, hostname, approved) VALUES (?, ?, ?)", "agent1", "host1", true)
+	require.NoError(t, err)
+	for _, id := range []string{"c1", "c2", "c3"} {
+		_, err = db.Exec("INSERT INTO containers (agent_uuid, container_id, name) VALUES (?, ?, ?)", "agent1", id, id)
+		require.NoError(t, err)
+	}
+
+	var cont models.Container
+	deleted, failed := cont.DeleteBulk(db, "agent1", []string{"c1", "c2"})
+	assert.Len(t, deleted, 2)
+	assert.Len(t, failed, 0)
+	assert.ElementsMatch(t, []string{"c1", "c2"}, deleted)
+
+	// c3 powinien nadal istnieć
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM containers WHERE agent_uuid='agent1'").Scan(&count)
+	assert.Equal(t, 1, count)
+
+	// Pusta lista — brak błędu
+	deleted, failed = cont.DeleteBulk(db, "agent1", []string{})
+	assert.Len(t, deleted, 0)
+	assert.Len(t, failed, 0)
+}
