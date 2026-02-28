@@ -19,7 +19,7 @@ export default async function MetricsPage({
   const detail = (await res.json()) as ServerDetailResponse
 
   return (
-    <main className="space-y-6 p-6">
+    <main className="space-y-6 p-4">
       {/* Sekcja statyczna — Server Component */}
       <ServerInfo server={detail.server} />
 

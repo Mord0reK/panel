@@ -115,6 +115,17 @@ export const api = {
     )
   },
 
+  deleteContainer(uuid: string, containerId: string, password: string) {
+    return apiFetch<{ success: boolean }>(
+      `/api/servers/${uuid}/containers/${containerId}`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      },
+    )
+  },
+
   // -------------------------------------------------------------------------
   // Metrics — history
   // -------------------------------------------------------------------------

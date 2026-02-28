@@ -113,7 +113,46 @@ func (h *ServersHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
-// PatchServerRequest defines editable fields for PATCH /api/servers/:uuid.
+// HandleDeleteContainer removes a container record from the database.
+// It requires the user's password in the request body for confirmation.
+func (h *ServersHandler) HandleDeleteContainer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	uuid := vars["uuid"]
+	containerID := vars["id"]
+
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
+		http.Error(w, "password required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify password by attempting authentication.
+	// We fetch the first (and only expected) user and use Authenticate.
+	var userModel models.User
+	// Authenticate requires a username; look up the single user first.
+	row := h.db.QueryRow("SELECT username FROM users LIMIT 1")
+	var username string
+	if err := row.Scan(&username); err != nil {
+		http.Error(w, "user not found", http.StatusInternalServerError)
+		return
+	}
+	if _, err := userModel.Authenticate(h.db, username, req.Password); err != nil {
+		http.Error(w, "invalid password", http.StatusUnauthorized)
+		return
+	}
+
+	var cont models.Container
+	if err := cont.Delete(h.db, uuid, containerID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
 type PatchServerRequest struct {
 	DisplayName *string `json:"display_name"`
 	Icon        *string `json:"icon"`

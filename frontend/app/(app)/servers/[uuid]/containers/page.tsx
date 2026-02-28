@@ -18,7 +18,7 @@ export default async function ContainersPage({
   const detail = (await res.json()) as ServerDetailResponse
 
   return (
-    <main className="space-y-6 p-6">
+    <main className="space-y-6 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-zinc-100">
           Kontenery — {detail.server.hostname}

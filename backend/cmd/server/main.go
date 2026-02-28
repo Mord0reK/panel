@@ -100,6 +100,7 @@ func main() {
 	apiRouter.HandleFunc("/servers/{uuid}", serversHandler.HandleDelete).Methods("DELETE")
 	apiRouter.HandleFunc("/servers/{uuid}/command", commandsHandler.HandleCommand).Methods("POST")
 	apiRouter.HandleFunc("/servers/{uuid}/containers/{id}/command", commandsHandler.HandleContainerCommand).Methods("POST")
+	apiRouter.HandleFunc("/servers/{uuid}/containers/{id}", serversHandler.HandleDeleteContainer).Methods("DELETE")
 
 	apiRouter.HandleFunc("/metrics/history/servers/{uuid}", metricsHandler.HandleServerHistory).Methods("GET")
 	apiRouter.HandleFunc("/metrics/history/servers/{uuid}/containers/{id}", metricsHandler.HandleContainerHistory).Methods("GET")
