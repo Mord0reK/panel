@@ -1,0 +1,24 @@
+# Panel — Agent only
+#
+# Use this compose file to deploy the agent on a monitored server.
+# The agent connects to an existing Panel backend instance.
+#
+# Usage:
+#   BACKEND_URL=ws://your-backend:8080/ws/agent docker compose -f docker-compose.agent.yml up -d
+#   VERSION=1.2.3 BACKEND_URL=ws://your-backend:8080/ws/agent docker compose -f docker-compose.agent.yml up -d
+#
+# Required environment variables:
+#   BACKEND_URL  — WebSocket URL of the Panel backend (e.g. ws://panel.example.com:8080/ws/agent)
+#
+# Optional environment variables:
+#   VERSION  — image tag to pull (default: latest)
+
+services:
+  agent:
+    image: ghcr.io/mord0rek/panel-agent:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: ${BACKEND_URL:?BACKEND_URL is required (e.g. ws://panel.example.com:8080/ws/agent)}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    pid: "host"

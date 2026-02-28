@@ -1,31 +1,35 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { PlayIcon, SquareIcon, RotateCwIcon } from 'lucide-react'
+import {
+  PlayIcon,
+  SquareIcon,
+  RotateCwIcon,
+  CheckSquareIcon,
+  XIcon,
+} from 'lucide-react'
 
 import { ContainerActions } from '@/components/containers/ContainerActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useServerMetrics } from '@/hooks/useServerMetrics'
 import { api } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatters'
-import type { Container } from '@/types'
+import type { Container, ContainerAction } from '@/types'
 
 interface ContainersTableProps {
   uuid: string
   containers: Container[]
+  bulkMode: boolean
+  onToggleBulk: () => void
 }
 
 // ---------------------------------------------------------------------------
 // Uptime helper
 // ---------------------------------------------------------------------------
 
-// Parses Docker's raw status string into a short Polish uptime string.
-// "Up 2 hours" → "Od 2h"
-// "Up 3 minutes" → "Od 3min"
-// "Up 5 seconds" → "Od 5s"
-// "Exited (0) 2 hours ago" → "" (not running, don't show)
 function parseUptime(status: string): string {
   if (!status) return ''
   const m = status.match(/^Up (\d+)\s+(second|minute|hour|day|week|month)/)
@@ -122,39 +126,117 @@ function StateBadge({ state }: { state: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Health badge
+// Health badge (with optional uptime)
 // ---------------------------------------------------------------------------
 
-function HealthBadge({ health }: { health: string }) {
+function HealthBadge({ health, uptime }: { health: string; uptime?: string }) {
+  const uptimePart = uptime ? (
+    <span className="text-xs text-zinc-500 ml-1">{uptime}</span>
+  ) : null
+
   switch (health) {
     case 'healthy':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
-          <span className="size-1.5 rounded-full bg-emerald-400" />
-          Zdrowy
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
+            <span className="size-1.5 rounded-full bg-emerald-400" />
+            Zdrowy
+          </span>
+          {uptimePart}
+        </div>
       )
     case 'unhealthy':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400 ring-1 ring-red-500/20">
-          <span className="size-1.5 rounded-full bg-red-400" />
-          Niezdrowy
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400 ring-1 ring-red-500/20">
+            <span className="size-1.5 rounded-full bg-red-400" />
+            Niezdrowy
+          </span>
+          {uptimePart}
+        </div>
       )
     case 'starting':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
-          <span className="size-1.5 rounded-full bg-amber-400" />
-          Startuje
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
+            <span className="size-1.5 rounded-full bg-amber-400" />
+            Startuje
+          </span>
+          {uptimePart}
+        </div>
       )
     default:
+      // Empty health — show just uptime if available, else dash
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700">
-          Nieznany
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-zinc-600">Nieznany</span>
+          {uptimePart}
+        </div>
       )
   }
+}
+
+// ---------------------------------------------------------------------------
+// BulkCheckbox cell — always rendered, animates in/out
+// ---------------------------------------------------------------------------
+
+function BulkCheckboxCell({
+  bulkMode,
+  checked,
+  onCheckedChange,
+  ariaLabel,
+  isHeader,
+}: {
+  bulkMode: boolean
+  checked: boolean | 'indeterminate'
+  onCheckedChange: (val: boolean) => void
+  ariaLabel: string
+  isHeader?: boolean
+}) {
+  return (
+    <td
+      className={[
+        'transition-all duration-200 overflow-hidden',
+        isHeader ? 'py-3' : 'py-3',
+        bulkMode ? 'w-10 px-4 opacity-100' : 'w-0 px-0 opacity-0 pointer-events-none',
+      ].join(' ')}
+    >
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(val) => onCheckedChange(!!val)}
+        aria-label={ariaLabel}
+        tabIndex={bulkMode ? 0 : -1}
+      />
+    </td>
+  )
+}
+
+function BulkCheckboxTh({
+  bulkMode,
+  checked,
+  onCheckedChange,
+  ariaLabel,
+}: {
+  bulkMode: boolean
+  checked: boolean | 'indeterminate'
+  onCheckedChange: (val: boolean) => void
+  ariaLabel: string
+}) {
+  return (
+    <th
+      className={[
+        'transition-all duration-200 overflow-hidden',
+        bulkMode ? 'w-10 px-4 opacity-100' : 'w-0 px-0 opacity-0 pointer-events-none',
+      ].join(' ')}
+    >
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(val) => onCheckedChange(!!val)}
+        aria-label={ariaLabel}
+        tabIndex={bulkMode ? 0 : -1}
+      />
+    </th>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -169,9 +251,23 @@ interface ProjectGroupHeaderProps {
   containerCount: number
   isStandalone?: boolean
   showActions?: boolean
+  bulkMode: boolean
+  allSelected: boolean
+  someSelected: boolean
+  onSelectAll: (checked: boolean) => void
 }
 
-function ProjectGroupHeader({ uuid, projectName, containerCount, isStandalone, showActions }: ProjectGroupHeaderProps) {
+function ProjectGroupHeader({
+  uuid,
+  projectName,
+  containerCount,
+  isStandalone,
+  showActions,
+  bulkMode,
+  allSelected,
+  someSelected,
+  onSelectAll,
+}: ProjectGroupHeaderProps) {
   const [pending, setPending] = useState<ComposeAction | null>(null)
 
   async function handleAction(action: ComposeAction) {
@@ -185,7 +281,13 @@ function ProjectGroupHeader({ uuid, projectName, containerCount, isStandalone, s
 
   return (
     <tr className="border-b border-zinc-700/60 bg-zinc-900/80">
-      <td colSpan={5} className="px-4 py-2">
+      <BulkCheckboxCell
+        bulkMode={bulkMode}
+        checked={someSelected ? (allSelected ? true : 'indeterminate') : false}
+        onCheckedChange={onSelectAll}
+        ariaLabel="Zaznacz wszystkie w grupie"
+      />
+      <td colSpan={7} className="px-4 py-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
             {isStandalone ? 'Standalone' : projectName}
@@ -195,9 +297,8 @@ function ProjectGroupHeader({ uuid, projectName, containerCount, isStandalone, s
           </span>
         </div>
       </td>
-      <td className="px-4 py-2" />
       <td className="px-4 py-2 text-right">
-        {showActions && (
+        {showActions && !bulkMode && (
           <div className="flex items-center justify-end gap-1">
             <Button
               variant="outline"
@@ -245,31 +346,45 @@ function ContainerRow({
   c,
   onDeleted,
   onAction,
+  bulkMode,
+  selected,
+  onSelect,
 }: {
   uuid: string
   c: Container
   onDeleted: (id: string) => void
   onAction: () => void
+  bulkMode: boolean
+  selected: boolean
+  onSelect: (id: string, checked: boolean) => void
 }) {
   const isRemoved = c.state === 'removed'
+  const uptime = c.status ? parseUptime(c.status) : ''
+
   return (
     <tr
       className={[
         'border-b border-zinc-800/50 transition-colors',
         isRemoved ? 'opacity-40 hover:opacity-60' : 'hover:bg-zinc-900/30',
-      ].join(' ')}
+        bulkMode && selected ? 'bg-zinc-800/40' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
+      <BulkCheckboxCell
+        bulkMode={bulkMode}
+        checked={selected}
+        onCheckedChange={(val) => onSelect(c.container_id, val)}
+        ariaLabel={`Zaznacz ${c.name}`}
+      />
       <td className="px-4 py-3">
         <div className="font-medium text-zinc-200">{c.name}</div>
       </td>
       <td className="px-4 py-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <StateBadge state={c.state} />
-          <HealthBadge health={c.health ?? ''} />
-          {c.status && parseUptime(c.status) && (
-            <span className="text-xs text-zinc-500 ml-1">{parseUptime(c.status)}</span>
-          )}
-        </div>
+        <StateBadge state={c.state} />
+      </td>
+      <td className="px-4 py-3">
+        <HealthBadge health={c.health ?? ''} uptime={uptime} />
       </td>
       <td className="px-4 py-3">
         <Badge variant="secondary" className="font-mono text-xs">
@@ -280,21 +395,23 @@ function ContainerRow({
       <td className="px-4 py-3 text-zinc-400" suppressHydrationWarning>
         {formatRelativeTime(c.last_seen)}
       </td>
-      <td className="px-4 py-3 text-right" colSpan={2}>
-        <ContainerActions
-          uuid={uuid}
-          containerId={c.container_id}
-          containerName={c.name}
-          onDeleted={() => onDeleted(c.container_id)}
-          onAction={onAction}
-        />
+      <td className="px-4 py-3 text-right">
+        {!bulkMode && (
+          <ContainerActions
+            uuid={uuid}
+            containerId={c.container_id}
+            containerName={c.name}
+            onDeleted={() => onDeleted(c.container_id)}
+            onAction={onAction}
+          />
+        )}
       </td>
     </tr>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Main table
+// Project group
 // ---------------------------------------------------------------------------
 
 function ProjectGroup({
@@ -304,6 +421,10 @@ function ProjectGroup({
   isStandalone,
   onDeleted,
   onAction,
+  bulkMode,
+  selectedIds,
+  onSelect,
+  onSelectGroup,
 }: {
   uuid: string
   projectKey: string
@@ -311,8 +432,15 @@ function ProjectGroup({
   isStandalone: boolean
   onDeleted: (id: string) => void
   onAction: () => void
+  bulkMode: boolean
+  selectedIds: Set<string>
+  onSelect: (id: string, checked: boolean) => void
+  onSelectGroup: (ids: string[], checked: boolean) => void
 }) {
   const showActions = !isStandalone && group.length > 1
+  const groupIds = group.map((c) => c.container_id)
+  const allSelected = groupIds.every((id) => selectedIds.has(id))
+  const someSelected = groupIds.some((id) => selectedIds.has(id))
 
   return (
     <>
@@ -322,6 +450,10 @@ function ProjectGroup({
         containerCount={group.length}
         isStandalone={isStandalone}
         showActions={showActions}
+        bulkMode={bulkMode}
+        allSelected={allSelected}
+        someSelected={someSelected}
+        onSelectAll={(checked) => onSelectGroup(groupIds, checked)}
       />
       {group.map((c) => (
         <ContainerRow
@@ -330,20 +462,96 @@ function ProjectGroup({
           c={c}
           onDeleted={onDeleted}
           onAction={onAction}
+          bulkMode={bulkMode}
+          selected={selectedIds.has(c.container_id)}
+          onSelect={onSelect}
         />
       ))}
     </>
   )
 }
 
-export function ContainersTable({ uuid, containers }: ContainersTableProps) {
+// ---------------------------------------------------------------------------
+// Bulk action bar
+// ---------------------------------------------------------------------------
+
+function BulkActionBar({
+  uuid,
+  selectedIds,
+  onDone,
+}: {
+  uuid: string
+  selectedIds: Set<string>
+  onDone: () => void
+}) {
+  const [pending, setPending] = useState<ContainerAction | null>(null)
+  const count = selectedIds.size
+
+  async function runBulkAction(action: ContainerAction) {
+    if (count === 0) return
+    setPending(action)
+    try {
+      await Promise.allSettled(
+        Array.from(selectedIds).map((id) => api.containerCommand(uuid, id, action)),
+      )
+      onDone()
+    } finally {
+      setPending(null)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5">
+      <span className="text-sm font-medium text-zinc-300">
+        Zaznaczono: <span className="text-zinc-100">{count}</span>
+      </span>
+      <div className="flex items-center gap-1.5 ml-auto">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={count === 0 || pending !== null}
+          onClick={() => runBulkAction('start')}
+          className="h-7 gap-1.5 px-3 text-xs"
+        >
+          <PlayIcon className={`size-3 ${pending === 'start' ? 'animate-spin' : ''}`} />
+          Start
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={count === 0 || pending !== null}
+          onClick={() => runBulkAction('stop')}
+          className="h-7 gap-1.5 px-3 text-xs border-red-800 text-red-400 hover:bg-red-900/30 hover:text-red-300"
+        >
+          <SquareIcon className={`size-3 ${pending === 'stop' ? 'animate-spin' : ''}`} />
+          Stop
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={count === 0 || pending !== null}
+          onClick={() => runBulkAction('restart')}
+          className="h-7 gap-1.5 px-3 text-xs"
+        >
+          <RotateCwIcon className={`size-3 ${pending === 'restart' ? 'animate-spin' : ''}`} />
+          Restart
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Exported component
+// ---------------------------------------------------------------------------
+
+export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: ContainersTableProps) {
   const router = useRouter()
   const [localContainers, setLocalContainers] = useState<Container[]>(containers)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  // Live container states from SSE — merged on top of DB data
   const { containerPoints } = useServerMetrics(uuid)
 
-  // Merge: take DB list, override `state`/`health`/`status` with latest live value when available
   const mergedContainers = useMemo<Container[]>(() => {
     return localContainers.map((c) => {
       const points = containerPoints.get(c.container_id)
@@ -360,11 +568,39 @@ export function ContainersTable({ uuid, containers }: ContainersTableProps) {
 
   function handleDeleted(containerId: string) {
     setLocalContainers((prev) => prev.filter((c) => c.container_id !== containerId))
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.delete(containerId)
+      return next
+    })
     router.refresh()
   }
 
   function handleAction() {
     router.refresh()
+  }
+
+  // Reset selection when leaving bulk mode
+  useEffect(() => {
+    if (!bulkMode) setSelectedIds(new Set())
+  }, [bulkMode])
+
+  function handleSelect(id: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  function handleSelectGroup(ids: string[], checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) ids.forEach((id) => next.add(id))
+      else ids.forEach((id) => next.delete(id))
+      return next
+    })
   }
 
   if (mergedContainers.length === 0) {
@@ -375,7 +611,6 @@ export function ContainersTable({ uuid, containers }: ContainersTableProps) {
     )
   }
 
-  // Group by project; containers without a project go to "__standalone__"
   const grouped = new Map<string, Container[]>()
   for (const c of mergedContainers) {
     const key = c.project || '__standalone__'
@@ -384,44 +619,72 @@ export function ContainersTable({ uuid, containers }: ContainersTableProps) {
     grouped.set(key, group)
   }
 
-  // Sort: named projects first (alphabetically), standalone last
   const sortedKeys = Array.from(grouped.keys()).sort((a, b) => {
     if (a === '__standalone__') return 1
     if (b === '__standalone__') return -1
     return a.localeCompare(b)
   })
 
+  const allSelected =
+    mergedContainers.length > 0 &&
+    mergedContainers.every((c) => selectedIds.has(c.container_id))
+  const someSelected = mergedContainers.some((c) => selectedIds.has(c.container_id))
+
   return (
-    <div className="overflow-x-auto rounded-lg border border-zinc-800">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left text-xs text-zinc-500">
-            <th className="px-4 py-3 font-medium">Nazwa</th>
-            <th className="px-4 py-3 font-medium">Stan</th>
-            <th className="px-4 py-3 font-medium">Obraz</th>
-            <th className="px-4 py-3 font-medium">Serwis</th>
-            <th className="px-4 py-3 font-medium">Ostatnio widziany</th>
-            <th className="px-4 py-3 text-right font-medium" colSpan={2}>Akcje</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sortedKeys.map((key) => {
-            const group = grouped.get(key)!
-            const isStandalone = key === '__standalone__'
-            return (
-              <ProjectGroup
-                key={key}
-                uuid={uuid}
-                projectKey={key}
-                group={group}
-                isStandalone={isStandalone}
-                onDeleted={handleDeleted}
-                onAction={handleAction}
+    <div className="space-y-3">
+      {bulkMode && (
+        <BulkActionBar
+          uuid={uuid}
+          selectedIds={selectedIds}
+          onDone={handleAction}
+        />
+      )}
+
+      <div className="overflow-x-auto rounded-lg border border-zinc-800">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left text-xs text-zinc-500">
+              <BulkCheckboxTh
+                bulkMode={bulkMode}
+                checked={someSelected ? (allSelected ? true : 'indeterminate') : false}
+                onCheckedChange={(val) => {
+                  if (val) setSelectedIds(new Set(mergedContainers.map((c) => c.container_id)))
+                  else setSelectedIds(new Set())
+                }}
+                ariaLabel="Zaznacz wszystkie"
               />
-            )
-          })}
-        </tbody>
-      </table>
+              <th className="px-4 py-3 font-medium">Nazwa</th>
+              <th className="px-4 py-3 font-medium">Stan</th>
+              <th className="px-4 py-3 font-medium">Health</th>
+              <th className="px-4 py-3 font-medium">Obraz</th>
+              <th className="px-4 py-3 font-medium">Serwis</th>
+              <th className="px-4 py-3 font-medium">Ostatnio widziany</th>
+              <th className="px-4 py-3 text-right font-medium">Akcje</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedKeys.map((key) => {
+              const group = grouped.get(key)!
+              const isStandalone = key === '__standalone__'
+              return (
+                <ProjectGroup
+                  key={key}
+                  uuid={uuid}
+                  projectKey={key}
+                  group={group}
+                  isStandalone={isStandalone}
+                  onDeleted={handleDeleted}
+                  onAction={handleAction}
+                  bulkMode={bulkMode}
+                  selectedIds={selectedIds}
+                  onSelect={handleSelect}
+                  onSelectGroup={handleSelectGroup}
+                />
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
