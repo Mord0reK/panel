@@ -79,7 +79,7 @@ type SnapshotCollector struct {
 	cgroupCaches map[string]*docker.CgroupCache
 }
 
-const diskCacheInterval = 30 * time.Second
+const diskCacheInterval = 60 * time.Second
 
 func NewSnapshotCollector() *SnapshotCollector {
 	return &SnapshotCollector{

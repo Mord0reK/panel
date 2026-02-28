@@ -28,7 +28,7 @@ func (a *Aggregator) Stop() {
 }
 
 func (a *Aggregator) Run() {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
