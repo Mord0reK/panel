@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"time"
 
@@ -57,6 +58,9 @@ type containerCounters struct {
 	NetRx  uint64
 	NetTx  uint64
 	DiskIO uint64
+	// CPUUsec is the cumulative CPU usage in microseconds read from cgroup.
+	// Used to compute per-tick CPU% without relying on Docker Stats API.
+	CPUUsec uint64
 }
 
 type SnapshotCollector struct {
@@ -110,20 +114,17 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 		if elapsed > 0 && len(cpuTimes) > 0 {
 			deltaTotal := cpuTimes[0].Total() - c.prevHost.CPUTotal
 			deltaIdle := cpuTimes[0].Idle - c.prevHost.CPUIdle
-
 			if deltaTotal > 0 {
 				host.CPU = (1 - deltaIdle/deltaTotal) * 100
 			}
 		}
 
-		elapsedForRates := now.Sub(c.prevHost.Ts).Seconds()
-		host.DiskReadBytesPerSec = toRate(diskReadTotal, c.prevHost.DiskRead, elapsedForRates)
-		host.DiskWriteBytesPerSec = toRate(diskWriteTotal, c.prevHost.DiskWrite, elapsedForRates)
-		host.NetRxBytesPerSec = toRate(netRxTotal, c.prevHost.NetRx, elapsedForRates)
-		host.NetTxBytesPerSec = toRate(netTxTotal, c.prevHost.NetTx, elapsedForRates)
+		host.DiskReadBytesPerSec = toRate(diskReadTotal, c.prevHost.DiskRead, elapsed)
+		host.DiskWriteBytesPerSec = toRate(diskWriteTotal, c.prevHost.DiskWrite, elapsed)
+		host.NetRxBytesPerSec = toRate(netRxTotal, c.prevHost.NetRx, elapsed)
+		host.NetTxBytesPerSec = toRate(netTxTotal, c.prevHost.NetTx, elapsed)
 	}
 
-	// Populate disk usage percent from the root partition (or fallback to first available)
 	for _, d := range sysMetrics.Disk {
 		if d.Mountpoint == "/" {
 			host.DiskUsedPercent = d.Percent
@@ -162,6 +163,9 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 }
 
 func (c *SnapshotCollector) normalizeContainerRates(now time.Time, ts int64, containers []docker.RealtimeContainerInfo) []docker.RealtimeContainerInfo {
+	// Number of logical CPUs on the host — used for cgroup CPU% calculation.
+	numCPUs := float64(runtime.NumCPU())
+
 	active := make(map[string]struct{}, len(containers))
 
 	for i := range containers {
@@ -169,27 +173,43 @@ func (c *SnapshotCollector) normalizeContainerRates(now time.Time, ts int64, con
 		active[id] = struct{}{}
 
 		prev, ok := c.prevContainers[id]
+
 		currNetRx := containers[i].NetRx
 		currNetTx := containers[i].NetTx
 		currDisk := containers[i].DiskUsed
+		currCPUUsec := containers[i].CPURawUsec
 
 		if ok {
 			elapsed := now.Sub(prev.Ts).Seconds()
+
+			// CPU% from cgroup delta.
+			// Formula: (delta_cpu_usec / (elapsed_usec * num_cpus)) * 100
+			if elapsed > 0 && currCPUUsec >= prev.CPUUsec {
+				deltaCPU := float64(currCPUUsec - prev.CPUUsec)
+				elapsedUsec := elapsed * 1_000_000
+				containers[i].CPU = deltaCPU / (elapsedUsec * numCPUs) * 100.0
+			}
+
 			containers[i].NetRx = toRate(currNetRx, prev.NetRx, elapsed)
 			containers[i].NetTx = toRate(currNetTx, prev.NetTx, elapsed)
 			containers[i].DiskUsed = toRate(currDisk, prev.DiskIO, elapsed)
 		} else {
+			containers[i].CPU = 0
 			containers[i].NetRx = 0
 			containers[i].NetTx = 0
 			containers[i].DiskUsed = 0
 		}
 
+		// Zero out the raw counter before sending over the wire.
+		containers[i].CPURawUsec = 0
 		containers[i].Timestamp = ts
+
 		c.prevContainers[id] = containerCounters{
-			Ts:     now,
-			NetRx:  currNetRx,
-			NetTx:  currNetTx,
-			DiskIO: currDisk,
+			Ts:      now,
+			NetRx:   currNetRx,
+			NetTx:   currNetTx,
+			DiskIO:  currDisk,
+			CPUUsec: currCPUUsec,
 		}
 	}
 
@@ -209,8 +229,7 @@ func toRate(current, previous uint64, elapsedSeconds float64) uint64 {
 	if current < previous {
 		return 0
 	}
-	delta := current - previous
-	return uint64(float64(delta) / elapsedSeconds)
+	return uint64(float64(current-previous) / elapsedSeconds)
 }
 
 func collectNetworkTotals(ctx context.Context) (uint64, uint64) {

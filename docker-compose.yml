@@ -40,10 +40,12 @@ services:
   agent:
     image: ghcr.io/mord0rek/panel-agent:${VERSION:-latest}
     restart: unless-stopped
+    network_mode: host
     environment:
-      BACKEND_URL: ws://backend:8080/ws/agent
+      BACKEND_URL: ws://localhost:8080/ws/agent
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
     pid: "host"
     depends_on:
       - backend

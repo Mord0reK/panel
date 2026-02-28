@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +25,7 @@ type ContainerInfo struct {
 	Project     string                 `json:"project,omitempty"`
 	Service     string                 `json:"service,omitempty"`
 	Labels      map[string]string      `json:"labels,omitempty"`
-	workingDir  string                 // internal use for compose group
+	workingDir  string
 }
 
 type ContainerMetrics struct {
@@ -41,8 +42,8 @@ type RealtimeContainerInfo struct {
 	Project     string  `json:"project"`
 	Service     string  `json:"service"`
 	State       string  `json:"state"`
-	Health      string  `json:"health"` // "healthy", "unhealthy", "starting", ""
-	Status      string  `json:"status"` // raw Docker status string, e.g. "Up 2 hours (healthy)"
+	Health      string  `json:"health"`
+	Status      string  `json:"status"`
 	Timestamp   int64   `json:"timestamp"`
 	CPU         float64 `json:"cpu_percent"`
 	MemUsed     uint64  `json:"mem_used"`
@@ -51,6 +52,11 @@ type RealtimeContainerInfo struct {
 	DiskPercent float64 `json:"disk_percent"`
 	NetRx       uint64  `json:"net_rx_bytes"`
 	NetTx       uint64  `json:"net_tx_bytes"`
+
+	// Raw cumulative CPU usage in microseconds (from cgroups).
+	// Used by SnapshotCollector to compute CPU% delta between ticks.
+	// Not sent over the wire as a meaningful value — set to 0 after snapshot normalisation.
+	CPURawUsec uint64 `json:"cpu_raw_usec,omitempty"`
 }
 
 type RealtimeContainerMetrics struct {
@@ -112,11 +118,6 @@ type NetworkInfo struct {
 }
 
 // parseHealthFromStatus extracts health status from Docker's Status string.
-// Examples: "Up 2 hours (healthy)" → "healthy"
-//
-//	"Up 3 minutes (unhealthy)" → "unhealthy"
-//	"Up 5 seconds (health: starting)" → "starting"
-//	"Up 5 hours" → ""
 func parseHealthFromStatus(status string) string {
 	start := strings.LastIndex(status, "(")
 	end := strings.LastIndex(status, ")")
@@ -124,7 +125,6 @@ func parseHealthFromStatus(status string) string {
 		return ""
 	}
 	inner := strings.TrimSpace(status[start+1 : end])
-	// "health: starting" → "starting"
 	if strings.HasPrefix(inner, "health: ") {
 		inner = strings.TrimPrefix(inner, "health: ")
 	}
@@ -143,6 +143,198 @@ func NewDockerClient() (*client.Client, error) {
 	return cli, nil
 }
 
+// cgroupBasePath returns the cgroup v2 path for a given full container ID.
+// Tries the systemd slice path first (most common on Ubuntu/Debian with Docker),
+// then the legacy docker-managed path as fallback.
+func cgroupBasePath(containerID string) string {
+	systemdPath := fmt.Sprintf("/sys/fs/cgroup/system.slice/docker-%s.scope", containerID)
+	if _, err := os.Stat(systemdPath); err == nil {
+		return systemdPath
+	}
+	return fmt.Sprintf("/sys/fs/cgroup/docker/%s", containerID)
+}
+
+// readUint64File reads a single uint64 value from a cgroup file.
+func readUint64File(path string) (uint64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	var v uint64
+	_, err = fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &v)
+	return v, err
+}
+
+// readCgroupStats populates RealtimeContainerInfo from cgroup v2 files.
+// CPU is returned as a raw cumulative microsecond counter (CPURawUsec);
+// the actual CPU% is computed by SnapshotCollector using delta between ticks.
+func readCgroupStats(containerID string, info *RealtimeContainerInfo) {
+	base := cgroupBasePath(containerID)
+
+	// ── CPU ────────────────────────────────────────────────────────────
+	// cpu.stat contains "usage_usec <N>" — cumulative nanoseconds of CPU time.
+	if data, err := os.ReadFile(base + "/cpu.stat"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "usage_usec ") {
+				var usec uint64
+				fmt.Sscanf(strings.TrimPrefix(line, "usage_usec "), "%d", &usec)
+				info.CPURawUsec = usec
+				break
+			}
+		}
+	}
+
+	// ── Memory ─────────────────────────────────────────────────────────
+	if memUsed, err := readUint64File(base + "/memory.current"); err == nil {
+		// Subtract inactive_file (page cache) the same way docker stats does.
+		if statData, err := os.ReadFile(base + "/memory.stat"); err == nil {
+			for _, line := range strings.Split(string(statData), "\n") {
+				if strings.HasPrefix(line, "inactive_file ") {
+					var inactive uint64
+					fmt.Sscanf(strings.TrimPrefix(line, "inactive_file "), "%d", &inactive)
+					if memUsed > inactive {
+						memUsed -= inactive
+					}
+					break
+				}
+			}
+		}
+		info.MemUsed = memUsed
+
+		if limitData, err := os.ReadFile(base + "/memory.max"); err == nil {
+			limitStr := strings.TrimSpace(string(limitData))
+			if limitStr != "max" {
+				var limit uint64
+				if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil && limit > 0 {
+					info.MemPercent = float64(memUsed) / float64(limit) * 100.0
+				}
+			}
+		}
+	}
+
+	// ── Block I/O ──────────────────────────────────────────────────────
+	// io.stat format per line: "major:minor rbytes=N wbytes=N ..."
+	if data, err := os.ReadFile(base + "/io.stat"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			for _, field := range strings.Fields(line) {
+				switch {
+				case strings.HasPrefix(field, "rbytes="):
+					var v uint64
+					fmt.Sscanf(strings.TrimPrefix(field, "rbytes="), "%d", &v)
+					info.DiskUsed += v
+				case strings.HasPrefix(field, "wbytes="):
+					var v uint64
+					fmt.Sscanf(strings.TrimPrefix(field, "wbytes="), "%d", &v)
+					info.DiskUsed += v
+				}
+			}
+		}
+	}
+
+	// ── Network ────────────────────────────────────────────────────────
+	// cgroup v2 does not expose network counters — we read /proc/<pid>/net/dev
+	// where <pid> is the first thread listed in cgroup.threads.
+	if data, err := os.ReadFile(base + "/cgroup.threads"); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 0 && lines[0] != "" {
+			readProcNetDev(strings.TrimSpace(lines[0]), info)
+		}
+	}
+}
+
+// readProcNetDev reads network counters from /proc/<pid>/net/dev for the
+// network namespace of the given PID (i.e. the container's netns).
+func readProcNetDev(pid string, info *RealtimeContainerInfo) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%s/net/dev", pid))
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	// First two lines are headers.
+	for _, line := range lines[2:] {
+		fields := strings.Fields(line)
+		if len(fields) < 10 {
+			continue
+		}
+		iface := strings.TrimSuffix(fields[0], ":")
+		if iface == "lo" {
+			continue
+		}
+		var rx, tx uint64
+		fmt.Sscanf(fields[1], "%d", &rx)
+		fmt.Sscanf(fields[9], "%d", &tx)
+		info.NetRx += rx
+		info.NetTx += tx
+	}
+}
+
+// CollectRealtimeContainerMetrics collects per-container metrics using cgroup v2
+// filesystem reads instead of the Docker Stats API.
+// CPU is returned as CPURawUsec (cumulative); SnapshotCollector computes the %.
+func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*RealtimeContainerMetrics, error) {
+	metrics := &RealtimeContainerMetrics{
+		Timestamp: time.Now(),
+	}
+
+	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan RealtimeContainerInfo, len(containers.Items))
+
+	for _, c := range containers.Items {
+		wg.Add(1)
+		go func(cID, cName, cImage, cState, cStatus string, labels map[string]string) {
+			defer wg.Done()
+
+			name := cName
+			if len(name) > 0 && name[0] == '/' {
+				name = name[1:]
+			}
+
+			info := RealtimeContainerInfo{
+				ContainerID: cID[:12],
+				Name:        name,
+				State:       cState,
+				Health:      parseHealthFromStatus(cStatus),
+				Status:      cStatus,
+				Image:       cImage,
+				Timestamp:   time.Now().Unix(),
+			}
+
+			if labels != nil {
+				if project, ok := labels["com.docker.compose.project"]; ok {
+					info.Project = project
+				}
+				if service, ok := labels["com.docker.compose.service"]; ok {
+					info.Service = service
+				}
+			}
+
+			if cState == "running" {
+				readCgroupStats(cID, &info)
+			}
+
+			results <- info
+		}(c.ID, c.Names[0], c.Image, string(c.State), string(c.Status), c.Labels)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for info := range results {
+		metrics.Containers = append(metrics.Containers, info)
+	}
+
+	return metrics, nil
+}
+
+// CollectContainerMetrics collects full container details (used for docker-details
+// command and update checks). Still uses Docker API — this path is not hot.
 func CollectContainerMetrics(ctx context.Context, cli *client.Client) (*ContainerMetrics, error) {
 	metrics := &ContainerMetrics{
 		Timestamp: time.Now(),
@@ -178,7 +370,6 @@ func CollectContainerMetrics(ctx context.Context, cli *client.Client) (*Containe
 			if wd, ok := c.Labels["com.docker.compose.project.working_dir"]; ok {
 				info.workingDir = wd
 			}
-
 			info.Labels = filterLabels(c.Labels)
 		}
 
@@ -228,117 +419,6 @@ func CollectContainerMetrics(ctx context.Context, cli *client.Client) (*Containe
 	return metrics, nil
 }
 
-func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*RealtimeContainerMetrics, error) {
-	metrics := &RealtimeContainerMetrics{
-		Timestamp: time.Now(),
-	}
-
-	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	var wg sync.WaitGroup
-	results := make(chan RealtimeContainerInfo, len(containers.Items))
-
-	for _, c := range containers.Items {
-		state := string(c.State)
-
-		wg.Add(1)
-		go func(containerID, containerName, containerImage, containerState, containerStatus string, labels map[string]string) {
-			defer wg.Done()
-
-			name := containerName
-			if len(name) > 0 && name[0] == '/' {
-				name = name[1:]
-			}
-
-			info := RealtimeContainerInfo{
-				ContainerID: containerID[:12],
-				Name:        name,
-				State:       containerState,
-				Health:      parseHealthFromStatus(containerStatus),
-				Status:      containerStatus,
-				Image:       containerImage,
-				Timestamp:   time.Now().Unix(),
-			}
-
-			if labels != nil {
-				if project, ok := labels["com.docker.compose.project"]; ok {
-					info.Project = project
-				}
-				if service, ok := labels["com.docker.compose.service"]; ok {
-					info.Service = service
-				}
-			}
-
-			// Only fetch live stats for running containers
-			if containerState == "running" {
-				statsResp, err := cli.ContainerStats(ctx, containerID, client.ContainerStatsOptions{Stream: false})
-				if err == nil {
-					var stats container.StatsResponse
-					if err := json.NewDecoder(statsResp.Body).Decode(&stats); err == nil {
-						cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
-						systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
-						onlineCPUs := float64(stats.CPUStats.OnlineCPUs)
-						if onlineCPUs == 0 {
-							onlineCPUs = float64(len(stats.CPUStats.CPUUsage.PercpuUsage))
-						}
-						if systemDelta > 0 && cpuDelta > 0 {
-							info.CPU = (cpuDelta / systemDelta) * onlineCPUs * 100.0
-						}
-
-						memUsed := stats.MemoryStats.Usage
-						if stats.MemoryStats.Stats != nil {
-							if inactiveFile, ok := stats.MemoryStats.Stats["inactive_file"]; ok && memUsed > inactiveFile {
-								memUsed -= inactiveFile
-							} else if cache, ok := stats.MemoryStats.Stats["cache"]; ok && memUsed > cache {
-								memUsed -= cache
-							}
-						}
-						info.MemUsed = memUsed
-						memLimit := stats.MemoryStats.Limit
-						if memLimit > 0 {
-							info.MemPercent = float64(info.MemUsed) / float64(memLimit) * 100.0
-						}
-
-						if len(stats.BlkioStats.IoServiceBytesRecursive) > 0 {
-							for _, bio := range stats.BlkioStats.IoServiceBytesRecursive {
-								if bio.Op == "read" || bio.Op == "Read" {
-									info.DiskUsed += bio.Value
-								} else if bio.Op == "write" || bio.Op == "Write" {
-									info.DiskUsed += bio.Value
-								}
-							}
-						}
-
-						if stats.Networks != nil {
-							for _, net := range stats.Networks {
-								info.NetRx += net.RxBytes
-								info.NetTx += net.TxBytes
-							}
-						}
-					}
-					_ = statsResp.Body.Close()
-				}
-			}
-
-			results <- info
-		}(c.ID, c.Names[0], c.Image, state, string(c.Status), c.Labels)
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	for info := range results {
-		metrics.Containers = append(metrics.Containers, info)
-	}
-
-	return metrics, nil
-}
-
 func parseContainerStats(stats *container.StatsResponse) *ContainerStats {
 	result := &ContainerStats{}
 
@@ -361,7 +441,6 @@ func parseContainerStats(stats *container.StatsResponse) *ContainerStats {
 		result.Memory.RSS = stats.MemoryStats.Stats["rss"]
 		result.Memory.Swap = stats.MemoryStats.Stats["swap"]
 	}
-	// docker stats subtracts cache (inactive_file) from usage, we do the same
 	memUsed := stats.MemoryStats.Usage
 	if stats.MemoryStats.Stats != nil {
 		if inactiveFile, ok := stats.MemoryStats.Stats["inactive_file"]; ok && memUsed > inactiveFile {
@@ -398,7 +477,6 @@ func parseContainerStats(stats *container.StatsResponse) *ContainerStats {
 	}
 
 	result.PIDs = int64(stats.PidsStats.Current)
-
 	return result
 }
 
