@@ -46,7 +46,9 @@ type ContainerMetrics struct {
 	Image       string  `json:"image"`
 	Project     string  `json:"project"`
 	Service     string  `json:"service"`
-	State       string  `json:"state"` // running, stopped, etc.
+	State       string  `json:"state"`  // running, stopped, etc.
+	Health      string  `json:"health"` // healthy, unhealthy, starting, none
+	Status      string  `json:"status"` // human-readable status string from docker
 	Timestamp   int64   `json:"timestamp"`
 	CPU         float64 `json:"cpu_percent"`
 	MemUsed     uint64  `json:"mem_used"`

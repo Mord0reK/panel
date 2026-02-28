@@ -205,6 +205,8 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 						Project:     c.Project,
 						Service:     c.Service,
 						State:       c.State,
+						Health:      c.Health,
+						Status:      c.Status,
 					}
 					cont.Upsert(h.db)
 
