@@ -95,6 +95,9 @@ export function useServerMetrics(
                 disk_percent: 0,
                 net_rx: p.net_rx_bytes,
                 net_tx: p.net_tx_bytes,
+                state: '',
+                health: '',
+                status: '',
               }),
             )
             buf.set(
