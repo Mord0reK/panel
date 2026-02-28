@@ -8,12 +8,24 @@ import {
   RotateCwIcon,
   CheckSquareIcon,
   XIcon,
+  Trash2Icon,
+  AlertTriangleIcon,
 } from 'lucide-react'
 
 import { ContainerActions } from '@/components/containers/ContainerActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useServerMetrics } from '@/hooks/useServerMetrics'
 import { api } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatters'
@@ -479,12 +491,18 @@ function BulkActionBar({
   uuid,
   selectedIds,
   onDone,
+  onBulkDeleted,
 }: {
   uuid: string
   selectedIds: Set<string>
   onDone: () => void
+  onBulkDeleted: (deletedIds: string[]) => void
 }) {
   const [pending, setPending] = useState<ContainerAction | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const count = selectedIds.size
 
   async function runBulkAction(action: ContainerAction) {
@@ -497,6 +515,28 @@ function BulkActionBar({
       onDone()
     } finally {
       setPending(null)
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (count === 0 || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const result = await api.deleteContainers(uuid, Array.from(selectedIds), deletePassword)
+      onBulkDeleted(result.deleted)
+      setDeleteOpen(false)
+      setDeletePassword('')
+      onDone()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Błąd usuwania'
+      if (msg.includes('invalid password')) {
+        setDeleteError('Nieprawidłowe hasło')
+      } else {
+        setDeleteError(msg)
+      }
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -536,7 +576,92 @@ function BulkActionBar({
           <RotateCwIcon className={`size-3 ${pending === 'restart' ? 'animate-spin' : ''}`} />
           Restart
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={count === 0 || pending !== null || deleting}
+          onClick={() => {
+            setDeletePassword('')
+            setDeleteError(null)
+            setDeleteOpen(true)
+          }}
+          className="h-7 gap-1.5 px-3 text-xs border-red-800/60 text-red-400 hover:bg-red-950/50 hover:text-red-300 hover:border-red-700"
+        >
+          <Trash2Icon className="size-3" />
+          Usuń
+        </Button>
       </div>
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!open && !deleting) {
+            setDeleteOpen(false)
+            setDeletePassword('')
+            setDeleteError(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangleIcon className="size-5 text-red-400" />
+              Usuń kontenery z panelu
+            </DialogTitle>
+            <DialogDescription>
+              Zostanie trwale usuniętych{' '}
+              <span className="font-semibold text-zinc-200">{count}</span>{' '}
+              {count === 1 ? 'kontener' : 'kontenerów'} z bazy danych panelu.
+              Nie wpłynie to na działające kontenery Docker.
+              Ta operacja jest nieodwracalna.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3 py-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="bulk-delete-password">Potwierdź hasłem do panelu</Label>
+              <Input
+                id="bulk-delete-password"
+                type="password"
+                placeholder="Hasło"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleBulkDelete()
+                }}
+                autoFocus
+                data-testid="bulk-delete-password"
+                disabled={deleting}
+              />
+            </div>
+            {deleteError && (
+              <p className="text-sm text-red-400">{deleteError}</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={deleting}
+              onClick={() => {
+                setDeleteOpen(false)
+                setDeletePassword('')
+                setDeleteError(null)
+              }}
+            >
+              Anuluj
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!deletePassword || deleting}
+              onClick={handleBulkDelete}
+              data-testid="bulk-delete-confirm"
+            >
+              {deleting ? 'Usuwanie…' : `Usuń ${count}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -578,6 +703,10 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
 
   function handleAction() {
     router.refresh()
+  }
+
+  function handleBulkDeleted(ids: string[]) {
+    ids.forEach((id) => handleDeleted(id))
   }
 
   // Reset selection when leaving bulk mode
@@ -637,6 +766,7 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
           uuid={uuid}
           selectedIds={selectedIds}
           onDone={handleAction}
+          onBulkDeleted={handleBulkDeleted}
         />
       )}
 
