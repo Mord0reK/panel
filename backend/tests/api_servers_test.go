@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -79,6 +80,69 @@ func TestServersAPI(t *testing.T) {
 	// Cascade check
 	db.QueryRow("SELECT COUNT(*) FROM containers").Scan(&count)
 	assert.Equal(t, 0, count)
+}
+
+func TestHandleDeleteContainers(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	hub := ws.NewHub()
+	go hub.Run()
+	handler := api.NewServersHandler(db, hub)
+	r := mux.NewRouter()
+	r.HandleFunc("/api/servers/{uuid}/containers", handler.HandleDeleteContainers).Methods("DELETE")
+
+	// Setup: user + serwer + kontenery
+	var userModel models.User
+	err := userModel.Create(db, "admin", "pass1234")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO servers (uuid, hostname, approved) VALUES (?, ?, ?)", "srv1", "host1", true)
+	require.NoError(t, err)
+	for _, id := range []string{"c1", "c2", "c3"} {
+		_, err = db.Exec("INSERT INTO containers (agent_uuid, container_id, name) VALUES (?, ?, ?)", "srv1", id, id)
+		require.NoError(t, err)
+	}
+
+	// 1. Brak hasła → 400
+	body := `{"container_ids":["c1"]}`
+	req := httptest.NewRequest("DELETE", "/api/servers/srv1/containers", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 2. Złe hasło → 401
+	body = `{"container_ids":["c1"],"password":"wrong"}`
+	req = httptest.NewRequest("DELETE", "/api/servers/srv1/containers", bytes.NewBufferString(body))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	// 3. Poprawne hasło, 2 kontenery → 200, deleted=[c1,c2]
+	body = `{"container_ids":["c1","c2"],"password":"pass1234"}`
+	req = httptest.NewRequest("DELETE", "/api/servers/srv1/containers", bytes.NewBufferString(body))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Deleted []string `json:"deleted"`
+		Failed  []string `json:"failed"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Len(t, resp.Deleted, 2)
+	assert.Len(t, resp.Failed, 0)
+
+	// c3 nadal istnieje
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM containers WHERE agent_uuid='srv1'").Scan(&count)
+	assert.Equal(t, 1, count)
+
+	// 4. Pusta lista → 200, deleted=[], failed=[]
+	body = `{"container_ids":[],"password":"pass1234"}`
+	req = httptest.NewRequest("DELETE", "/api/servers/srv1/containers", bytes.NewBufferString(body))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestDeleteContainersBulk(t *testing.T) {

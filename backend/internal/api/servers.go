@@ -153,6 +153,53 @@ func (h *ServersHandler) HandleDeleteContainer(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
+// HandleDeleteContainers removes multiple container records from the database.
+// It requires the user's password in the request body for confirmation.
+// Request body: { "container_ids": [...], "password": "..." }
+// Response: { "deleted": [...], "failed": [...] }
+func (h *ServersHandler) HandleDeleteContainers(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	uuid := vars["uuid"]
+
+	var req struct {
+		ContainerIDs []string `json:"container_ids"`
+		Password     string   `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
+		http.Error(w, "password required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify password once for the entire batch.
+	// We fetch the first (and only expected) user and use Authenticate.
+	var userModel models.User
+	row := h.db.QueryRow("SELECT username FROM users LIMIT 1")
+	var username string
+	if err := row.Scan(&username); err != nil {
+		http.Error(w, "user not found", http.StatusInternalServerError)
+		return
+	}
+	if _, err := userModel.Authenticate(h.db, username, req.Password); err != nil {
+		http.Error(w, "invalid password", http.StatusUnauthorized)
+		return
+	}
+
+	var cont models.Container
+	deleted, failed := cont.DeleteBulk(h.db, uuid, req.ContainerIDs)
+
+	status := http.StatusOK
+	if len(failed) > 0 && len(deleted) > 0 {
+		status = http.StatusMultiStatus
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"deleted": deleted,
+		"failed":  failed,
+	})
+}
+
 type PatchServerRequest struct {
 	DisplayName *string `json:"display_name"`
 	Icon        *string `json:"icon"`
