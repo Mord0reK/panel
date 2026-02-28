@@ -126,6 +126,17 @@ export const api = {
     )
   },
 
+  deleteContainers(uuid: string, containerIds: string[], password: string) {
+    return apiFetch<{ deleted: string[]; failed: string[] }>(
+      `/api/servers/${uuid}/containers`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ container_ids: containerIds, password }),
+      },
+    )
+  },
+
   // -------------------------------------------------------------------------
   // Metrics — history
   // -------------------------------------------------------------------------
