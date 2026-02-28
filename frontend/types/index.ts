@@ -43,6 +43,8 @@ export interface Container {
   project: string
   service: string
   state: string // e.g. "running", "exited", "paused", "unknown"
+  health: string
+  status: string
   first_seen: string // ISO 8601
   last_seen: string // ISO 8601
 }
@@ -231,6 +233,9 @@ export interface LiveServerContainerRaw {
   DiskPercent: number
   NetRx: number
   NetTx: number
+  State: string
+  Health: string
+  Status: string
 }
 
 export interface LiveServerEvent {
@@ -264,6 +269,9 @@ export interface LiveServerContainer {
   disk_percent: number
   net_rx: number
   net_tx: number
+  state: string
+  health: string
+  status: string
 }
 
 // =============================================================================
@@ -328,5 +336,8 @@ export function normalizeLiveContainer(
     disk_percent: raw.DiskPercent,
     net_rx: raw.NetRx,
     net_tx: raw.NetTx,
+    state: raw.State ?? '',
+    health: raw.Health ?? '',
+    status: raw.Status ?? '',
   }
 }
