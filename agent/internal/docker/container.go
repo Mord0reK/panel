@@ -338,13 +338,26 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client, cg
 	var wg sync.WaitGroup
 	results := make(chan RealtimeContainerInfo, len(containers.Items))
 
+	// Worker pool with semaphore to limit concurrent goroutines.
+	// Reduces scheduler overhead and syscall contention by processing
+	// containers in batches of 8 instead of spawning N goroutines at once.
+	const maxWorkers = 8
+	semaphore := make(chan struct{}, maxWorkers)
+
 	for _, c := range containers.Items {
 		// Each goroutine receives its own cache pointer — no concurrent access
 		// to the same CgroupCache since container IDs are unique.
 		cache := cgroupCaches[c.ID]
 		wg.Add(1)
+
+		// Acquire semaphore before spawning goroutine
+		semaphore <- struct{}{}
+
 		go func(cID, cName, cImage, cState, cStatus string, labels map[string]string, cache *CgroupCache) {
-			defer wg.Done()
+			defer func() {
+				<-semaphore  // Release semaphore
+				wg.Done()
+			}()
 
 			name := cName
 			if len(name) > 0 && name[0] == '/' {
