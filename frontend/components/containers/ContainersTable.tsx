@@ -287,7 +287,7 @@ function ProjectGroupHeader({
         onCheckedChange={onSelectAll}
         ariaLabel="Zaznacz wszystkie w grupie"
       />
-      <td colSpan={7} className="px-4 py-2">
+      <td colSpan={6} className="px-4 py-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
             {isStandalone ? 'Standalone' : projectName}
