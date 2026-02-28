@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { PlayIcon, SquareIcon, RotateCwIcon } from 'lucide-react'
 
 import { ContainerActions } from '@/components/containers/ContainerActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useServerMetrics } from '@/hooks/useServerMetrics'
 import { api } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatters'
 import type { Container } from '@/types'
@@ -16,16 +18,54 @@ interface ContainersTableProps {
 }
 
 // ---------------------------------------------------------------------------
+// Uptime helper
+// ---------------------------------------------------------------------------
+
+// Parses Docker's raw status string into a short Polish uptime string.
+// "Up 2 hours" → "Od 2h"
+// "Up 3 minutes" → "Od 3min"
+// "Up 5 seconds" → "Od 5s"
+// "Exited (0) 2 hours ago" → "" (not running, don't show)
+function parseUptime(status: string): string {
+  if (!status) return ''
+  const m = status.match(/^Up (\d+)\s+(second|minute|hour|day|week|month)/)
+  if (!m) return ''
+  const n = parseInt(m[1], 10)
+  const unit = m[2]
+  if (unit.startsWith('second')) return `Od ${n}s`
+  if (unit.startsWith('minute')) return `Od ${n}min`
+  if (unit.startsWith('hour')) return `Od ${n}h`
+  if (unit.startsWith('day')) return `Od ${n}d`
+  if (unit.startsWith('week')) return `Od ${n}tyg`
+  if (unit.startsWith('month')) return `Od ${n}mies`
+  return ''
+}
+
+// ---------------------------------------------------------------------------
 // State badge
 // ---------------------------------------------------------------------------
 
+const STATE_LABELS: Record<string, string> = {
+  running: 'Uruchomiony',
+  exited: 'Wyłączony',
+  stopped: 'Zatrzymany',
+  paused: 'Wstrzymany',
+  restarting: 'Restartowanie',
+  removing: 'Usuwanie',
+  removed: 'Usunięty',
+  created: 'Utworzony',
+  dead: 'Martwy',
+}
+
 function StateBadge({ state }: { state: string }) {
+  const label = STATE_LABELS[state] ?? state
+
   switch (state) {
     case 'running':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
           <span className="size-1.5 rounded-full bg-emerald-400" />
-          running
+          {label}
         </span>
       )
     case 'exited':
@@ -33,29 +73,87 @@ function StateBadge({ state }: { state: string }) {
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-400 ring-1 ring-zinc-700">
           <span className="size-1.5 rounded-full bg-zinc-500" />
-          {state}
+          {label}
         </span>
       )
     case 'paused':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
           <span className="size-1.5 rounded-full bg-amber-400" />
-          paused
+          {label}
         </span>
       )
+    case 'restarting':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400 ring-1 ring-blue-500/20">
+          <span className="size-1.5 rounded-full bg-blue-400" />
+          {label}
+        </span>
+      )
+    case 'removing':
     case 'removed':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800/60 px-2 py-0.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-700/50">
           <span className="size-1.5 rounded-full bg-zinc-600" />
-          removed
+          {label}
+        </span>
+      )
+    case 'created':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-400 ring-1 ring-cyan-500/20">
+          <span className="size-1.5 rounded-full bg-cyan-400" />
+          {label}
+        </span>
+      )
+    case 'dead':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400 ring-1 ring-red-500/20">
+          <span className="size-1.5 rounded-full bg-red-500" />
+          {label}
         </span>
       )
     default:
       return state ? (
         <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700">
-          {state}
+          {label}
         </span>
       ) : null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Health badge
+// ---------------------------------------------------------------------------
+
+function HealthBadge({ health }: { health: string }) {
+  switch (health) {
+    case 'healthy':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
+          <span className="size-1.5 rounded-full bg-emerald-400" />
+          Zdrowy
+        </span>
+      )
+    case 'unhealthy':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400 ring-1 ring-red-500/20">
+          <span className="size-1.5 rounded-full bg-red-400" />
+          Niezdrowy
+        </span>
+      )
+    case 'starting':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
+          <span className="size-1.5 rounded-full bg-amber-400" />
+          Startuje
+        </span>
+      )
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700">
+          Nieznany
+        </span>
+      )
   }
 }
 
@@ -142,7 +240,17 @@ function ProjectGroupHeader({ uuid, projectName, containerCount, isStandalone, s
 // Container row
 // ---------------------------------------------------------------------------
 
-function ContainerRow({ uuid, c }: { uuid: string; c: Container }) {
+function ContainerRow({
+  uuid,
+  c,
+  onDeleted,
+  onAction,
+}: {
+  uuid: string
+  c: Container
+  onDeleted: (id: string) => void
+  onAction: () => void
+}) {
   const isRemoved = c.state === 'removed'
   return (
     <tr
@@ -155,7 +263,13 @@ function ContainerRow({ uuid, c }: { uuid: string; c: Container }) {
         <div className="font-medium text-zinc-200">{c.name}</div>
       </td>
       <td className="px-4 py-3">
-        <StateBadge state={c.state} />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StateBadge state={c.state} />
+          <HealthBadge health={c.health ?? ''} />
+          {c.status && parseUptime(c.status) && (
+            <span className="text-xs text-zinc-500 ml-1">{parseUptime(c.status)}</span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3">
         <Badge variant="secondary" className="font-mono text-xs">
@@ -167,7 +281,13 @@ function ContainerRow({ uuid, c }: { uuid: string; c: Container }) {
         {formatRelativeTime(c.last_seen)}
       </td>
       <td className="px-4 py-3 text-right" colSpan={2}>
-        <ContainerActions uuid={uuid} containerId={c.container_id} />
+        <ContainerActions
+          uuid={uuid}
+          containerId={c.container_id}
+          containerName={c.name}
+          onDeleted={() => onDeleted(c.container_id)}
+          onAction={onAction}
+        />
       </td>
     </tr>
   )
@@ -182,11 +302,15 @@ function ProjectGroup({
   projectKey,
   group,
   isStandalone,
+  onDeleted,
+  onAction,
 }: {
   uuid: string
   projectKey: string
   group: Container[]
   isStandalone: boolean
+  onDeleted: (id: string) => void
+  onAction: () => void
 }) {
   const showActions = !isStandalone && group.length > 1
 
@@ -204,6 +328,8 @@ function ProjectGroup({
           key={c.container_id}
           uuid={uuid}
           c={c}
+          onDeleted={onDeleted}
+          onAction={onAction}
         />
       ))}
     </>
@@ -211,7 +337,37 @@ function ProjectGroup({
 }
 
 export function ContainersTable({ uuid, containers }: ContainersTableProps) {
-  if (containers.length === 0) {
+  const router = useRouter()
+  const [localContainers, setLocalContainers] = useState<Container[]>(containers)
+
+  // Live container states from SSE — merged on top of DB data
+  const { containerPoints } = useServerMetrics(uuid)
+
+  // Merge: take DB list, override `state`/`health`/`status` with latest live value when available
+  const mergedContainers = useMemo<Container[]>(() => {
+    return localContainers.map((c) => {
+      const points = containerPoints.get(c.container_id)
+      const latest = points?.[points.length - 1]
+      if (!latest) return c
+      return {
+        ...c,
+        state: latest.state || c.state,
+        health: latest.health || c.health,
+        status: latest.status || c.status,
+      }
+    })
+  }, [localContainers, containerPoints])
+
+  function handleDeleted(containerId: string) {
+    setLocalContainers((prev) => prev.filter((c) => c.container_id !== containerId))
+    router.refresh()
+  }
+
+  function handleAction() {
+    router.refresh()
+  }
+
+  if (mergedContainers.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center text-sm text-zinc-500">
         Brak kontenerów
@@ -221,7 +377,7 @@ export function ContainersTable({ uuid, containers }: ContainersTableProps) {
 
   // Group by project; containers without a project go to "__standalone__"
   const grouped = new Map<string, Container[]>()
-  for (const c of containers) {
+  for (const c of mergedContainers) {
     const key = c.project || '__standalone__'
     const group = grouped.get(key) ?? []
     group.push(c)
@@ -259,6 +415,8 @@ export function ContainersTable({ uuid, containers }: ContainersTableProps) {
                 projectKey={key}
                 group={group}
                 isStandalone={isStandalone}
+                onDeleted={handleDeleted}
+                onAction={handleAction}
               />
             )
           })}
