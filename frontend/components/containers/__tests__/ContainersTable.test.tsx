@@ -1,7 +1,25 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { ContainersTable } from '@/components/containers/ContainersTable'
 import type { Container } from '@/types'
+
+// Mock next/navigation to avoid "invariant expected app router to be mounted"
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), refresh: jest.fn(), replace: jest.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
+// Mock useServerMetrics — SSE/EventSource is not available in JSDOM
+jest.mock('@/hooks/useServerMetrics', () => ({
+  useServerMetrics: () => ({
+    hostPoints: [],
+    containerPoints: new Map(),
+    connected: false,
+    error: null,
+  }),
+}))
 
 // Mock ContainerActions — tested separately
 jest.mock('@/components/containers/ContainerActions', () => ({
@@ -11,9 +29,11 @@ jest.mock('@/components/containers/ContainerActions', () => ({
 }))
 
 // Mock api to avoid real HTTP calls in unit tests
+const mockDeleteContainers = jest.fn()
 jest.mock('@/lib/api', () => ({
   api: {
     serverCommand: jest.fn().mockResolvedValue({}),
+    deleteContainers: (...args: unknown[]) => mockDeleteContainers(...args),
   },
 }))
 
@@ -34,6 +54,11 @@ function makeContainer(overrides: Partial<Container> = {}): Container {
 }
 
 describe('ContainersTable', () => {
+  beforeEach(() => {
+    mockDeleteContainers.mockReset()
+    mockDeleteContainers.mockResolvedValue({ deleted: [], failed: [] })
+  })
+
   it('shows empty state when no containers', () => {
     render(<ContainersTable uuid="uuid-1" containers={[]} />)
 
@@ -157,5 +182,60 @@ describe('ContainersTable', () => {
     expect(screen.getByText('app-1')).toBeInTheDocument()
     expect(screen.getByText('app-2')).toBeInTheDocument()
     expect(screen.getByText('app-3')).toBeInTheDocument()
+  })
+})
+
+describe('BulkActionBar', () => {
+  const twoContainers = [
+    makeContainer({ container_id: 'c1', name: 'nginx' }),
+    makeContainer({ container_id: 'c2', id: 2, name: 'redis', project: 'app' }),
+  ]
+
+  beforeEach(() => {
+    mockDeleteContainers.mockReset()
+    mockDeleteContainers.mockResolvedValue({ deleted: [], failed: [] })
+  })
+
+  it('shows Usuń button when bulkMode is on', () => {
+    render(
+      <ContainersTable
+        uuid="uuid-1"
+        containers={twoContainers}
+        bulkMode={true}
+        onToggleBulk={() => {}}
+      />,
+    )
+    expect(screen.getByText('Usuń')).toBeInTheDocument()
+  })
+
+  it('does not show Usuń button when bulkMode is off', () => {
+    render(
+      <ContainersTable
+        uuid="uuid-1"
+        containers={twoContainers}
+        bulkMode={false}
+        onToggleBulk={() => {}}
+      />,
+    )
+    expect(screen.queryByText('Usuń')).not.toBeInTheDocument()
+  })
+
+  it('opens delete dialog when Usuń is clicked', async () => {
+    const user = userEvent.setup()
+    render(
+      <ContainersTable
+        uuid="uuid-1"
+        containers={twoContainers}
+        bulkMode={true}
+        onToggleBulk={() => {}}
+      />,
+    )
+
+    // Select all containers via the header checkbox so the Usuń button is enabled
+    const selectAllCheckbox = screen.getByLabelText('Zaznacz wszystkie')
+    await user.click(selectAllCheckbox)
+
+    await user.click(screen.getByText('Usuń'))
+    expect(screen.getByTestId('bulk-delete-password')).toBeInTheDocument()
   })
 })
