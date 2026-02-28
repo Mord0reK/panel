@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"sync"
 	"time"
 	"unicode"
 
@@ -13,6 +14,28 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/net"
 )
+
+// cpuCountOnce caches CPU core/thread counts — they never change at runtime.
+// Calling cpu.CountsWithContext() twice per second is wasteful.
+var (
+	cpuCountOnce      sync.Once
+	cachedCPUPhysical int
+	cachedCPULogical  int
+)
+
+// getCPUCounts returns cached physical and logical CPU counts.
+// On first call (or if cache is empty) it reads from the OS.
+func GetCPUCounts(ctx context.Context) (physical, logical int) {
+	cpuCountOnce.Do(func() {
+		if n, err := cpu.CountsWithContext(ctx, false); err == nil {
+			cachedCPUPhysical = n
+		}
+		if n, err := cpu.CountsWithContext(ctx, true); err == nil {
+			cachedCPULogical = n
+		}
+	})
+	return cachedCPUPhysical, cachedCPULogical
+}
 
 func capitalize(s string) string {
 	if s == "" {
@@ -168,14 +191,8 @@ func CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 		metrics.CPU.PerCPUPercent = make([]float64, len(times))
 	}
 
-	cpuPhysical, err := cpu.CountsWithContext(ctx, false)
-	if err == nil {
-		metrics.CPU.Cores = cpuPhysical
-	}
-	cpuLogical, err := cpu.CountsWithContext(ctx, true)
-	if err == nil {
-		metrics.CPU.Threads = cpuLogical
-	}
+	// Use cached counts — CPU topology never changes at runtime.
+	metrics.CPU.Cores, metrics.CPU.Threads = GetCPUCounts(ctx)
 
 	memStats, err := mem.VirtualMemoryWithContext(ctx)
 	if err != nil {
@@ -188,12 +205,15 @@ func CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 		Percent:   memStats.UsedPercent,
 	}
 
-	diskParts, err := disk.PartitionsWithContext(ctx, false)
+	// Pass all=true to get the Fstype field so we can filter overlay/tmpfs.
+	// Docker creates one overlay mount per running container, so without this
+	// filter we'd call statfs() on every container's merged layer every second.
+	diskParts, err := disk.PartitionsWithContext(ctx, true)
 	if err != nil {
 		return nil, err
 	}
 	for _, part := range diskParts {
-		if config.IsIgnoredMount(part.Mountpoint) {
+		if config.IsIgnoredMount(part.Mountpoint) || config.IsIgnoredFsType(part.Fstype) {
 			continue
 		}
 		usage, err := disk.UsageWithContext(ctx, part.Mountpoint)

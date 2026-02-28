@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"agent/internal/collector"
 	"agent/internal/config"
 	"agent/internal/docker"
 
 	"github.com/moby/moby/client"
 	gocpu "github.com/shirou/gopsutil/v4/cpu"
 	godisk "github.com/shirou/gopsutil/v4/disk"
+	gomem "github.com/shirou/gopsutil/v4/mem"
 	gonet "github.com/shirou/gopsutil/v4/net"
 )
 
@@ -67,11 +67,24 @@ type SnapshotCollector struct {
 	mu             sync.Mutex
 	prevHost       *hostCounters
 	prevContainers map[string]containerCounters
+
+	// disk usage is cached and refreshed every diskCacheInterval.
+	// Disk usage changes slowly — no need to call statfs() every second.
+	cachedDiskPct float64
+	lastDiskCheck time.Time
+
+	// cgroupCaches holds per-container cgroup data that rarely changes.
+	// Keyed by full container ID. Entries for stopped/removed containers
+	// are pruned in normalizeContainerRates together with prevContainers.
+	cgroupCaches map[string]*docker.CgroupCache
 }
+
+const diskCacheInterval = 30 * time.Second
 
 func NewSnapshotCollector() *SnapshotCollector {
 	return &SnapshotCollector{
 		prevContainers: make(map[string]containerCounters),
+		cgroupCaches:   make(map[string]*docker.CgroupCache),
 	}
 }
 
@@ -82,14 +95,23 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 	now := time.Now()
 	ts := now.Unix()
 
-	sysMetrics, err := collector.CollectSystemMetrics(ctx)
+	// ── Memory ─────────────────────────────────────────────────────────────
+	// Read memory directly — avoids the full CollectSystemMetrics() call which
+	// also reads CPU times and network counters (both collected separately below).
+	memStats, err := gomem.VirtualMemoryWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	// ── Network totals ─────────────────────────────────────────────────────
 	netRxTotal, netTxTotal := collectNetworkTotals(ctx)
+
+	// ── Disk I/O totals ────────────────────────────────────────────────────
 	diskReadTotal, diskWriteTotal := collectDiskIOTotals(ctx)
 
+	// ── CPU times ──────────────────────────────────────────────────────────
+	// Single read of /proc/stat per tick (previously read twice: once inside
+	// CollectSystemMetrics and once here).
 	cpuTimes, err := gocpu.TimesWithContext(ctx, false)
 	var cpuTotal, cpuIdle float64
 	if err == nil && len(cpuTimes) > 0 {
@@ -99,14 +121,15 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 
 	host := HostSnapshot{
 		Timestamp:           ts,
-		CPU:                 sysMetrics.CPU.Percent,
-		MemUsed:             sysMetrics.Memory.Used,
-		MemPercent:          sysMetrics.Memory.Percent,
-		MemoryTotal:         sysMetrics.Memory.Total,
+		CPU:                 0, // overwritten below once we have a previous sample
+		MemUsed:             memStats.Used,
+		MemPercent:          memStats.UsedPercent,
+		MemoryTotal:         memStats.Total,
 		DiskReadBytesTotal:  diskReadTotal,
 		DiskWriteBytesTotal: diskWriteTotal,
 		NetRxBytesTotal:     netRxTotal,
 		NetTxBytesTotal:     netTxTotal,
+		DiskUsedPercent:     c.getDiskUsedPercent(ctx),
 	}
 
 	if c.prevHost != nil {
@@ -125,16 +148,6 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 		host.NetTxBytesPerSec = toRate(netTxTotal, c.prevHost.NetTx, elapsed)
 	}
 
-	for _, d := range sysMetrics.Disk {
-		if d.Mountpoint == "/" {
-			host.DiskUsedPercent = d.Percent
-			break
-		}
-	}
-	if host.DiskUsedPercent == 0 && len(sysMetrics.Disk) > 0 {
-		host.DiskUsedPercent = sysMetrics.Disk[0].Percent
-	}
-
 	c.prevHost = &hostCounters{
 		Ts:        now,
 		NetRx:     netRxTotal,
@@ -147,7 +160,7 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 
 	var containers []docker.RealtimeContainerInfo
 	if dockerCli != nil {
-		realtime, err := docker.CollectRealtimeContainerMetrics(ctx, dockerCli)
+		realtime, err := docker.CollectRealtimeContainerMetrics(ctx, dockerCli, c.cgroupCaches)
 		if err == nil && realtime != nil {
 			containers = realtime.Containers
 		}
@@ -160,6 +173,51 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 		Host:       host,
 		Containers: containers,
 	}, nil
+}
+
+// getDiskUsedPercent returns the cached disk usage percent for the root
+// partition, refreshing the cache at most once every diskCacheInterval.
+// This avoids calling statfs() on every partition every second — on Docker
+// hosts /proc/mounts contains overlay2 mounts for every running container.
+// NOTE: must be called with c.mu held.
+func (c *SnapshotCollector) getDiskUsedPercent(ctx context.Context) float64 {
+	if time.Since(c.lastDiskCheck) < diskCacheInterval {
+		return c.cachedDiskPct
+	}
+
+	// Pass all=true to obtain the Fstype field for filtering.
+	parts, err := godisk.PartitionsWithContext(ctx, true)
+	if err != nil {
+		return c.cachedDiskPct
+	}
+
+	// Prefer the root filesystem; fall back to the first non-ignored entry.
+	var fallbackPct float64
+	foundFallback := false
+	for _, part := range parts {
+		if config.IsIgnoredMount(part.Mountpoint) || config.IsIgnoredFsType(part.Fstype) {
+			continue
+		}
+		usage, err := godisk.UsageWithContext(ctx, part.Mountpoint)
+		if err != nil {
+			continue
+		}
+		if part.Mountpoint == "/" {
+			c.cachedDiskPct = usage.UsedPercent
+			c.lastDiskCheck = time.Now()
+			return c.cachedDiskPct
+		}
+		if !foundFallback {
+			fallbackPct = usage.UsedPercent
+			foundFallback = true
+		}
+	}
+
+	if foundFallback {
+		c.cachedDiskPct = fallbackPct
+		c.lastDiskCheck = time.Now()
+	}
+	return c.cachedDiskPct
 }
 
 func (c *SnapshotCollector) normalizeContainerRates(now time.Time, ts int64, containers []docker.RealtimeContainerInfo) []docker.RealtimeContainerInfo {
@@ -216,6 +274,7 @@ func (c *SnapshotCollector) normalizeContainerRates(now time.Time, ts int64, con
 	for id := range c.prevContainers {
 		if _, ok := active[id]; !ok {
 			delete(c.prevContainers, id)
+			delete(c.cgroupCaches, id)
 		}
 	}
 

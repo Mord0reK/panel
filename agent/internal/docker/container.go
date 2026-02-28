@@ -143,6 +143,26 @@ func NewDockerClient() (*client.Client, error) {
 	return cli, nil
 }
 
+// CgroupCache holds per-container data that rarely changes between ticks.
+// Caching this avoids redundant syscalls on every collection cycle.
+//
+//   - cgroupPath — computed once via os.Stat; stable for the container's lifetime.
+//   - memMax     — container memory limit; changes only via "docker update".
+//   - pid        — init process PID from cgroup.threads; refreshed with a TTL
+//     because it changes on container restart.
+type CgroupCache struct {
+	cgroupPath string
+	memMax     uint64
+	memMaxSet  bool
+	pid        string
+	pidChecked time.Time
+}
+
+// cgroupPIDCacheTTL is how long we reuse a cached container PID before
+// re-reading cgroup.threads. A container restart changes the PID; 5 s gives
+// us at most one missed net-stats tick after a restart.
+const cgroupPIDCacheTTL = 5 * time.Second
+
 // cgroupBasePath returns the cgroup v2 path for a given full container ID.
 // Tries the systemd slice path first (most common on Ubuntu/Debian with Docker),
 // then the legacy docker-managed path as fallback.
@@ -165,14 +185,21 @@ func readUint64File(path string) (uint64, error) {
 	return v, err
 }
 
-// readCgroupStats populates RealtimeContainerInfo from cgroup v2 files.
+// readCgroupStatsWithCache populates RealtimeContainerInfo from cgroup v2 files,
+// using cache to skip syscalls that would return the same value every tick.
+//
 // CPU is returned as a raw cumulative microsecond counter (CPURawUsec);
 // the actual CPU% is computed by SnapshotCollector using delta between ticks.
-func readCgroupStats(containerID string, info *RealtimeContainerInfo) {
-	base := cgroupBasePath(containerID)
+func readCgroupStatsWithCache(containerID string, info *RealtimeContainerInfo, cache *CgroupCache) {
+	// ── cgroup path ────────────────────────────────────────────────────
+	// Resolved once: the systemd/legacy choice is fixed for the container's
+	// lifetime, so we skip the os.Stat() on every subsequent tick.
+	if cache.cgroupPath == "" {
+		cache.cgroupPath = cgroupBasePath(containerID)
+	}
+	base := cache.cgroupPath
 
 	// ── CPU ────────────────────────────────────────────────────────────
-	// cpu.stat contains "usage_usec <N>" — cumulative nanoseconds of CPU time.
 	if data, err := os.ReadFile(base + "/cpu.stat"); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			if strings.HasPrefix(line, "usage_usec ") {
@@ -201,19 +228,26 @@ func readCgroupStats(containerID string, info *RealtimeContainerInfo) {
 		}
 		info.MemUsed = memUsed
 
-		if limitData, err := os.ReadFile(base + "/memory.max"); err == nil {
-			limitStr := strings.TrimSpace(string(limitData))
-			if limitStr != "max" {
-				var limit uint64
-				if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil && limit > 0 {
-					info.MemPercent = float64(memUsed) / float64(limit) * 100.0
+		// memory.max (container limit) is stable — read once and cache.
+		// It changes only via "docker update --memory", which is extremely rare.
+		if !cache.memMaxSet {
+			if limitData, err := os.ReadFile(base + "/memory.max"); err == nil {
+				limitStr := strings.TrimSpace(string(limitData))
+				if limitStr != "max" {
+					var limit uint64
+					if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil && limit > 0 {
+						cache.memMax = limit
+						cache.memMaxSet = true
+					}
 				}
 			}
+		}
+		if cache.memMaxSet && cache.memMax > 0 {
+			info.MemPercent = float64(memUsed) / float64(cache.memMax) * 100.0
 		}
 	}
 
 	// ── Block I/O ──────────────────────────────────────────────────────
-	// io.stat format per line: "major:minor rbytes=N wbytes=N ..."
 	if data, err := os.ReadFile(base + "/io.stat"); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			for _, field := range strings.Fields(line) {
@@ -233,12 +267,20 @@ func readCgroupStats(containerID string, info *RealtimeContainerInfo) {
 
 	// ── Network ────────────────────────────────────────────────────────
 	// cgroup v2 does not expose network counters — we read /proc/<pid>/net/dev
-	// where <pid> is the first thread listed in cgroup.threads.
-	if data, err := os.ReadFile(base + "/cgroup.threads"); err == nil {
-		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-		if len(lines) > 0 && lines[0] != "" {
-			readProcNetDev(strings.TrimSpace(lines[0]), info)
+	// where <pid> is the container's init thread from cgroup.threads.
+	// The PID is cached with cgroupPIDCacheTTL: it changes only on restart,
+	// at which point we pick up the new PID within one TTL period.
+	if cache.pid == "" || time.Since(cache.pidChecked) > cgroupPIDCacheTTL {
+		if data, err := os.ReadFile(base + "/cgroup.threads"); err == nil {
+			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+			if len(lines) > 0 && lines[0] != "" {
+				cache.pid = strings.TrimSpace(lines[0])
+				cache.pidChecked = time.Now()
+			}
 		}
+	}
+	if cache.pid != "" {
+		readProcNetDev(cache.pid, info)
 	}
 }
 
@@ -271,7 +313,11 @@ func readProcNetDev(pid string, info *RealtimeContainerInfo) {
 // CollectRealtimeContainerMetrics collects per-container metrics using cgroup v2
 // filesystem reads instead of the Docker Stats API.
 // CPU is returned as CPURawUsec (cumulative); SnapshotCollector computes the %.
-func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*RealtimeContainerMetrics, error) {
+//
+// cgroupCaches is a caller-managed map keyed by full container ID. Entries are
+// created here for new containers; callers are responsible for pruning entries
+// for containers that no longer exist.
+func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client, cgroupCaches map[string]*CgroupCache) (*RealtimeContainerMetrics, error) {
 	metrics := &RealtimeContainerMetrics{
 		Timestamp: time.Now(),
 	}
@@ -281,12 +327,23 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
+	// Pre-populate cache entries for containers we haven't seen before.
+	// Must happen before goroutines are spawned to avoid concurrent map writes.
+	for _, c := range containers.Items {
+		if _, ok := cgroupCaches[c.ID]; !ok {
+			cgroupCaches[c.ID] = &CgroupCache{}
+		}
+	}
+
 	var wg sync.WaitGroup
 	results := make(chan RealtimeContainerInfo, len(containers.Items))
 
 	for _, c := range containers.Items {
+		// Each goroutine receives its own cache pointer — no concurrent access
+		// to the same CgroupCache since container IDs are unique.
+		cache := cgroupCaches[c.ID]
 		wg.Add(1)
-		go func(cID, cName, cImage, cState, cStatus string, labels map[string]string) {
+		go func(cID, cName, cImage, cState, cStatus string, labels map[string]string, cache *CgroupCache) {
 			defer wg.Done()
 
 			name := cName
@@ -314,11 +371,11 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client) (*
 			}
 
 			if cState == "running" {
-				readCgroupStats(cID, &info)
+				readCgroupStatsWithCache(cID, &info, cache)
 			}
 
 			results <- info
-		}(c.ID, c.Names[0], c.Image, string(c.State), string(c.Status), c.Labels)
+		}(c.ID, c.Names[0], c.Image, string(c.State), string(c.Status), c.Labels, cache)
 	}
 
 	go func() {

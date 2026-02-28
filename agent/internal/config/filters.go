@@ -12,6 +12,34 @@ var IgnoredMounts = map[string]bool{
 	"/dev/shm":  true,
 }
 
+// IgnoredFsTypes lists filesystem types that should be excluded from disk
+// usage collection. Docker overlay2 mounts (one per running container) and
+// other pseudo-filesystems appear in /proc/mounts and would otherwise cause
+// CollectSystemMetrics to call statfs() on every overlay mount every second.
+var IgnoredFsTypes = map[string]bool{
+	"overlay":         true,
+	"overlayfs":       true,
+	"tmpfs":           true,
+	"squashfs":        true,
+	"devtmpfs":        true,
+	"devpts":          true,
+	"cgroup":          true,
+	"cgroup2":         true,
+	"sysfs":           true,
+	"proc":            true,
+	"nsfs":            true,
+	"autofs":          true,
+	"fuse.lxcfs":      true,
+	"fuse.gvfsd-fuse": true,
+	"pstore":          true,
+	"securityfs":      true,
+	"debugfs":         true,
+	"hugetlbfs":       true,
+	"mqueue":          true,
+	"configfs":        true,
+	"binfmt_misc":     true,
+}
+
 var IgnoredNetworkInterfaces = map[string]bool{
 	"lo":         true,
 	"virbr":      true,
@@ -23,6 +51,10 @@ var IgnoredNetworkInterfaces = map[string]bool{
 
 func IsIgnoredMount(mountpoint string) bool {
 	return IgnoredMounts[mountpoint]
+}
+
+func IsIgnoredFsType(fstype string) bool {
+	return IgnoredFsTypes[fstype]
 }
 
 func IsIgnoredNetworkInterface(iface string) bool {
