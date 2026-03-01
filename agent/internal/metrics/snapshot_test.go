@@ -11,9 +11,9 @@ import (
 func TestSnapshotCollectorCPUDelta(t *testing.T) {
 	ctx := context.Background()
 
-	snapshotCollector := NewSnapshotCollector()
+	snapshotCollector := NewSnapshotCollector(nil)
 
-	first, err := snapshotCollector.Collect(ctx, nil)
+	first, err := snapshotCollector.Collect(ctx)
 	if err != nil {
 		t.Fatalf("First Collect failed: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestSnapshotCollectorCPUDelta(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	second, err := snapshotCollector.Collect(ctx, nil)
+	second, err := snapshotCollector.Collect(ctx)
 	if err != nil {
 		t.Fatalf("Second Collect failed: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"backend/internal/buffer"
@@ -13,14 +14,64 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type containerDBCache struct {
+	mu          sync.RWMutex
+	byAgent     map[string]containerCacheEntry
+	cacheTTL    time.Duration
+}
+
+type containerCacheEntry struct {
+	timestamp  time.Time
+	containers []models.Container
+}
+
+func newContainerDBCache() *containerDBCache {
+	return &containerDBCache{
+		byAgent:  make(map[string]containerCacheEntry),
+		cacheTTL: 10 * time.Second, // Refresh every 10s instead of every SSE tick
+	}
+}
+
+func (c *containerDBCache) get(db *sql.DB, agentUUID string) ([]models.Container, error) {
+	c.mu.RLock()
+	entry, ok := c.byAgent[agentUUID]
+	c.mu.RUnlock()
+
+	if ok && time.Since(entry.timestamp) < c.cacheTTL {
+		return entry.containers, nil
+	}
+
+	// Cache miss or expired - fetch from DB
+	var containerModel models.Container
+	containers, err := containerModel.GetByAgent(db, agentUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mu.Lock()
+	c.byAgent[agentUUID] = containerCacheEntry{
+		timestamp:  time.Now(),
+		containers: containers,
+	}
+	c.mu.Unlock()
+
+	return containers, nil
+}
+
 type SSEHandler struct {
-	db            *sql.DB
-	bufferManager *buffer.BufferManager
-	corsOrigin    string
+	db               *sql.DB
+	bufferManager    *buffer.BufferManager
+	corsOrigin       string
+	containerDBCache *containerDBCache
 }
 
 func NewSSEHandler(db *sql.DB, bufferManager *buffer.BufferManager, corsOrigin string) *SSEHandler {
-	return &SSEHandler{db: db, bufferManager: bufferManager, corsOrigin: corsOrigin}
+	return &SSEHandler{
+		db:               db,
+		bufferManager:    bufferManager,
+		corsOrigin:       corsOrigin,
+		containerDBCache: newContainerDBCache(),
+	}
 }
 
 func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +87,7 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -116,7 +167,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -130,9 +181,9 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 			}
 			containersMap := h.bufferManager.GetLatestForServerAtTimestamp(uuid, host.Timestamp)
 
-			// Fetch container states from DB (one query, fast).
-			var containerModel models.Container
-			dbContainers, _ := containerModel.GetByAgent(h.db, uuid)
+			// Fetch container states from DB with caching (10s TTL).
+			// State/health/status change rarely, so we don't need to query DB every SSE tick.
+			dbContainers, _ := h.containerDBCache.get(h.db, uuid)
 			type containerDBInfo struct {
 				State  string
 				Health string
