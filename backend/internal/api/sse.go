@@ -15,9 +15,9 @@ import (
 )
 
 type containerDBCache struct {
-	mu          sync.RWMutex
-	byAgent     map[string]containerCacheEntry
-	cacheTTL    time.Duration
+	mu       sync.RWMutex
+	byAgent  map[string]containerCacheEntry
+	cacheTTL time.Duration
 }
 
 type containerCacheEntry struct {
@@ -58,11 +58,48 @@ func (c *containerDBCache) get(db *sql.DB, agentUUID string) ([]models.Container
 	return containers, nil
 }
 
+// serverListCache caches the full server list from SQLite.
+// Servers change only when a new agent authenticates — no need to query every SSE tick.
+type serverListCache struct {
+	mu        sync.RWMutex
+	servers   []models.Server
+	fetchedAt time.Time
+	ttl       time.Duration
+}
+
+func newServerListCache() *serverListCache {
+	return &serverListCache{ttl: 30 * time.Second}
+}
+
+func (s *serverListCache) get(db *sql.DB) ([]models.Server, error) {
+	s.mu.RLock()
+	if !s.fetchedAt.IsZero() && time.Since(s.fetchedAt) < s.ttl {
+		result := s.servers
+		s.mu.RUnlock()
+		return result, nil
+	}
+	s.mu.RUnlock()
+
+	var serverModel models.Server
+	servers, err := serverModel.GetAll(db)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	s.servers = servers
+	s.fetchedAt = time.Now()
+	s.mu.Unlock()
+
+	return servers, nil
+}
+
 type SSEHandler struct {
 	db               *sql.DB
 	bufferManager    *buffer.BufferManager
 	corsOrigin       string
 	containerDBCache *containerDBCache
+	serverListCache  *serverListCache
 }
 
 func NewSSEHandler(db *sql.DB, bufferManager *buffer.BufferManager, corsOrigin string) *SSEHandler {
@@ -71,6 +108,7 @@ func NewSSEHandler(db *sql.DB, bufferManager *buffer.BufferManager, corsOrigin s
 		bufferManager:    bufferManager,
 		corsOrigin:       corsOrigin,
 		containerDBCache: newContainerDBCache(),
+		serverListCache:  newServerListCache(),
 	}
 }
 
@@ -87,7 +125,7 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -95,9 +133,8 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			// 2. Fetch all approved servers
-			var serverModel models.Server
-			servers, err := serverModel.GetAll(h.db)
+			// 2. Fetch all approved servers (cached, TTL 30s)
+			servers, err := h.serverListCache.get(h.db)
 			if err != nil {
 				continue
 			}
@@ -167,7 +204,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
