@@ -1,11 +1,13 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -164,12 +166,13 @@ type CgroupCache struct {
 	pidChecked time.Time
 
 	// Persistent FDs — kept open to avoid open()/close() per tick.
-	fdCPUStat    *os.File // <cgroup>/cpu.stat
-	fdMemCurrent *os.File // <cgroup>/memory.current
-	fdMemStat    *os.File // <cgroup>/memory.stat
-	fdIOStat     *os.File // <cgroup>/io.stat
-	fdNetDev     *os.File // /proc/<pid>/net/dev
-	fdNetDevPid  string   // pid for which fdNetDev is currently open
+	fdCPUStat       *os.File // <cgroup>/cpu.stat
+	fdMemCurrent    *os.File // <cgroup>/memory.current
+	fdMemStat       *os.File // <cgroup>/memory.stat
+	fdIOStat        *os.File // <cgroup>/io.stat
+	fdCgroupThreads *os.File // <cgroup>/cgroup.threads
+	fdNetDev        *os.File // /proc/<pid>/net/dev
+	fdNetDevPid     string   // pid for which fdNetDev is currently open
 
 	// readBuf is reused across all reads within a single tick.
 	// Safe: each CgroupCache is accessed by exactly one goroutine at a time
@@ -181,7 +184,7 @@ type CgroupCache struct {
 // Must be called when the associated container is removed from the registry.
 func (c *CgroupCache) Close() {
 	for _, fd := range []*os.File{
-		c.fdCPUStat, c.fdMemCurrent, c.fdMemStat, c.fdIOStat, c.fdNetDev,
+		c.fdCPUStat, c.fdMemCurrent, c.fdMemStat, c.fdIOStat, c.fdCgroupThreads, c.fdNetDev,
 	} {
 		if fd != nil {
 			fd.Close()
@@ -191,6 +194,7 @@ func (c *CgroupCache) Close() {
 	c.fdMemCurrent = nil
 	c.fdMemStat = nil
 	c.fdIOStat = nil
+	c.fdCgroupThreads = nil
 	c.fdNetDev = nil
 	c.fdNetDevPid = ""
 }
@@ -240,15 +244,49 @@ func cgroupBasePath(containerID string) string {
 	return fmt.Sprintf("/sys/fs/cgroup/docker/%s", containerID)
 }
 
-// readUint64File reads a single uint64 value from a cgroup file.
-func readUint64File(path string) (uint64, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, err
+// parseUint64Bytes parses a decimal uint64 from a byte slice without allocations.
+// Skips leading/trailing whitespace. Returns (0, false) on empty input or parse error.
+func parseUint64Bytes(b []byte) (uint64, bool) {
+	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t' || b[0] == '\n' || b[0] == '\r') {
+		b = b[1:]
+	}
+	for len(b) > 0 && (b[len(b)-1] == ' ' || b[len(b)-1] == '\t' || b[len(b)-1] == '\n' || b[len(b)-1] == '\r') {
+		b = b[:len(b)-1]
+	}
+	if len(b) == 0 {
+		return 0, false
 	}
 	var v uint64
-	_, err = fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &v)
-	return v, err
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return v, false
+		}
+		v = v*10 + uint64(c-'0')
+	}
+	return v, true
+}
+
+// scanLine returns the first line from data (without newline) and the remaining bytes.
+func scanLine(data []byte) (line, rest []byte) {
+	nl := bytes.IndexByte(data, '\n')
+	if nl < 0 {
+		return data, nil
+	}
+	return data[:nl], data[nl+1:]
+}
+
+// findField scans a "key value\n" kernel file and returns the value bytes for key.
+// key must include the trailing space (e.g., []byte("usage_usec ")).
+// No allocations — operates entirely on the input byte slice.
+func findField(data, key []byte) ([]byte, bool) {
+	for len(data) > 0 {
+		var line []byte
+		line, data = scanLine(data)
+		if bytes.HasPrefix(line, key) {
+			return line[len(key):], true
+		}
+	}
+	return nil, false
 }
 
 // readCgroupStatsWithCache populates RealtimeContainerInfo from cgroup v2 files,
@@ -267,68 +305,76 @@ func readCgroupStatsWithCache(containerID string, info *RealtimeContainerInfo, c
 
 	// ── CPU ────────────────────────────────────────────────────────────
 	if data, err := readVirtualFileFD(&cache.fdCPUStat, base+"/cpu.stat", cache.readBuf[:]); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "usage_usec ") {
-				var usec uint64
-				fmt.Sscanf(strings.TrimPrefix(line, "usage_usec "), "%d", &usec)
+		if val, ok := findField(data, []byte("usage_usec ")); ok {
+			if usec, ok := parseUint64Bytes(val); ok {
 				info.CPURawUsec = usec
-				break
 			}
 		}
 	}
 
 	// ── Memory ─────────────────────────────────────────────────────────
 	if memData, err := readVirtualFileFD(&cache.fdMemCurrent, base+"/memory.current", cache.readBuf[:]); err == nil {
-		var memUsed uint64
-		fmt.Sscanf(strings.TrimSpace(string(memData)), "%d", &memUsed)
-
-		// Subtract inactive_file (page cache) the same way docker stats does.
-		if statData, err := readVirtualFileFD(&cache.fdMemStat, base+"/memory.stat", cache.readBuf[:]); err == nil {
-			for _, line := range strings.Split(string(statData), "\n") {
-				if strings.HasPrefix(line, "inactive_file ") {
-					var inactive uint64
-					fmt.Sscanf(strings.TrimPrefix(line, "inactive_file "), "%d", &inactive)
-					if memUsed > inactive {
+		if memUsed, ok := parseUint64Bytes(memData); ok {
+			// Subtract inactive_file (page cache) the same way docker stats does.
+			if statData, err := readVirtualFileFD(&cache.fdMemStat, base+"/memory.stat", cache.readBuf[:]); err == nil {
+				if val, ok := findField(statData, []byte("inactive_file ")); ok {
+					if inactive, ok := parseUint64Bytes(val); ok && memUsed > inactive {
 						memUsed -= inactive
 					}
-					break
 				}
 			}
-		}
-		info.MemUsed = memUsed
+			info.MemUsed = memUsed
 
-		// memory.max (container limit) is stable — read once and cache.
-		// It changes only via "docker update --memory", which is extremely rare.
-		if !cache.memMaxSet {
-			if limitData, err := os.ReadFile(base + "/memory.max"); err == nil {
-				limitStr := strings.TrimSpace(string(limitData))
-				if limitStr != "max" {
-					var limit uint64
-					if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil && limit > 0 {
-						cache.memMax = limit
-						cache.memMaxSet = true
+			// memory.max (container limit) is stable — read once and cache.
+			// It changes only via "docker update --memory", which is extremely rare.
+			if !cache.memMaxSet {
+				if limitData, err := os.ReadFile(base + "/memory.max"); err == nil {
+					limitStr := strings.TrimSpace(string(limitData))
+					if limitStr != "max" {
+						if limit, err := strconv.ParseUint(limitStr, 10, 64); err == nil && limit > 0 {
+							cache.memMax = limit
+							cache.memMaxSet = true
+						}
 					}
 				}
 			}
-		}
-		if cache.memMaxSet && cache.memMax > 0 {
-			info.MemPercent = float64(memUsed) / float64(cache.memMax) * 100.0
+			if cache.memMaxSet && cache.memMax > 0 {
+				info.MemPercent = float64(memUsed) / float64(cache.memMax) * 100.0
+			}
 		}
 	}
 
 	// ── Block I/O ──────────────────────────────────────────────────────
 	if data, err := readVirtualFileFD(&cache.fdIOStat, base+"/io.stat", cache.readBuf[:]); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			for _, field := range strings.Fields(line) {
-				switch {
-				case strings.HasPrefix(field, "rbytes="):
-					var v uint64
-					fmt.Sscanf(strings.TrimPrefix(field, "rbytes="), "%d", &v)
-					info.DiskUsed += v
-				case strings.HasPrefix(field, "wbytes="):
-					var v uint64
-					fmt.Sscanf(strings.TrimPrefix(field, "wbytes="), "%d", &v)
-					info.DiskUsed += v
+		rbytesKey := []byte("rbytes=")
+		wbytesKey := []byte("wbytes=")
+		remaining := data
+		for len(remaining) > 0 {
+			var line []byte
+			line, remaining = scanLine(remaining)
+			for len(line) > 0 {
+				// skip leading spaces
+				for len(line) > 0 && line[0] == ' ' {
+					line = line[1:]
+				}
+				// extract next field
+				sp := bytes.IndexByte(line, ' ')
+				var field []byte
+				if sp >= 0 {
+					field = line[:sp]
+					line = line[sp:]
+				} else {
+					field = line
+					line = nil
+				}
+				if bytes.HasPrefix(field, rbytesKey) {
+					if v, ok := parseUint64Bytes(field[len(rbytesKey):]); ok {
+						info.DiskUsed += v
+					}
+				} else if bytes.HasPrefix(field, wbytesKey) {
+					if v, ok := parseUint64Bytes(field[len(wbytesKey):]); ok {
+						info.DiskUsed += v
+					}
 				}
 			}
 		}
@@ -340,10 +386,11 @@ func readCgroupStatsWithCache(containerID string, info *RealtimeContainerInfo, c
 	// The PID is cached with cgroupPIDCacheTTL: it changes only on restart,
 	// at which point we pick up the new PID within one TTL period.
 	if cache.pid == "" || time.Since(cache.pidChecked) > cgroupPIDCacheTTL {
-		if data, err := os.ReadFile(base + "/cgroup.threads"); err == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			if len(lines) > 0 && lines[0] != "" {
-				cache.pid = strings.TrimSpace(lines[0])
+		if data, err := readVirtualFileFD(&cache.fdCgroupThreads, base+"/cgroup.threads", cache.readBuf[:]); err == nil {
+			line, _ := scanLine(data)
+			line = bytes.TrimSpace(line)
+			if len(line) > 0 {
+				cache.pid = string(line) // one alloc per TTL period (every 5s max)
 				cache.pidChecked = time.Now()
 			}
 		}
@@ -357,6 +404,7 @@ func readCgroupStatsWithCache(containerID string, info *RealtimeContainerInfo, c
 // network namespace of the given PID (i.e. the container's netns).
 // It uses a persistent FD from cache to avoid open()/close() per tick.
 // When the PID changes (container restart) the old FD is closed and reopened.
+// Parsing is zero-allocation: operates entirely on the cache.readBuf byte slice.
 func readProcNetDev(pid string, cache *CgroupCache, info *RealtimeContainerInfo) {
 	// If PID changed (container restart), close the stale FD.
 	if cache.fdNetDevPid != pid {
@@ -372,23 +420,67 @@ func readProcNetDev(pid string, cache *CgroupCache, info *RealtimeContainerInfo)
 	if err != nil {
 		return
 	}
-	// Record the PID for which fdNetDev is open (only after a successful read).
 	cache.fdNetDevPid = pid
 
-	lines := strings.Split(string(data), "\n")
-	// First two lines are headers.
-	for _, line := range lines[2:] {
-		fields := strings.Fields(line)
-		if len(fields) < 10 {
+	// Skip the two header lines.
+	for i := 0; i < 2; i++ {
+		nl := bytes.IndexByte(data, '\n')
+		if nl < 0 {
+			return
+		}
+		data = data[nl+1:]
+	}
+
+	loBytes := []byte("lo")
+	for len(data) > 0 {
+		var line []byte
+		line, data = scanLine(data)
+
+		// trim leading spaces
+		for len(line) > 0 && line[0] == ' ' {
+			line = line[1:]
+		}
+		if len(line) == 0 {
 			continue
 		}
-		iface := strings.TrimSuffix(fields[0], ":")
-		if iface == "lo" {
+
+		// Parse up to 10 whitespace-separated fields.
+		// Field 0: "iface:"  Field 1: rx_bytes  Field 9: tx_bytes
+		var fields [10][]byte
+		n := 0
+		rem := line
+		for n < 10 && len(rem) > 0 {
+			for len(rem) > 0 && rem[0] == ' ' {
+				rem = rem[1:]
+			}
+			if len(rem) == 0 {
+				break
+			}
+			sp := bytes.IndexByte(rem, ' ')
+			if sp < 0 {
+				fields[n] = rem
+				n++
+				break
+			}
+			fields[n] = rem[:sp]
+			rem = rem[sp:]
+			n++
+		}
+		if n < 10 {
 			continue
 		}
-		var rx, tx uint64
-		fmt.Sscanf(fields[1], "%d", &rx)
-		fmt.Sscanf(fields[9], "%d", &tx)
+
+		iface := fields[0]
+		// strip trailing colon from interface name
+		if len(iface) > 0 && iface[len(iface)-1] == ':' {
+			iface = iface[:len(iface)-1]
+		}
+		if bytes.Equal(iface, loBytes) {
+			continue
+		}
+
+		rx, _ := parseUint64Bytes(fields[1])
+		tx, _ := parseUint64Bytes(fields[9])
 		info.NetRx += rx
 		info.NetTx += tx
 	}
