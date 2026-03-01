@@ -8,6 +8,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -42,6 +44,17 @@ func main() {
 
 	if envURL := os.Getenv("BACKEND_URL"); envURL != "" && backendURL == "" {
 		backendURL = envURL
+	}
+
+	// Optional pprof profiling endpoint, enabled via PPROF_ADDR env var.
+	// Example: PPROF_ADDR=:6060 to expose on localhost:6060/debug/pprof/
+	if pprofAddr := os.Getenv("PPROF_ADDR"); pprofAddr != "" {
+		go func() {
+			log.Printf("pprof listening on %s", pprofAddr)
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Printf("pprof server error: %v", err)
+			}
+		}()
 	}
 
 	args := flag.Args()
@@ -252,8 +265,21 @@ func runWebSocket() {
 		}
 	}()
 
-	snapshotCollector := metrics.NewSnapshotCollector()
-	go sendMetricsLoop(ctx, wsClient, dockerCli, snapshotCollector)
+	// Initialize container registry — populated once and kept fresh by Docker
+	// events. This eliminates ContainerList() from the 1-second metrics hot path.
+	var registry *docker.ContainerRegistry
+	if dockerCli != nil {
+		registry = docker.NewContainerRegistry()
+		syncCtx, syncCancel := context.WithTimeout(ctx, 15*time.Second)
+		if err := registry.Sync(syncCtx, dockerCli); err != nil {
+			log.Printf("Warning: initial container registry sync failed: %v", err)
+		}
+		syncCancel()
+		go registry.WatchEvents(ctx, dockerCli)
+	}
+
+	snapshotCollector := metrics.NewSnapshotCollector(registry)
+	go sendMetricsLoop(ctx, wsClient, snapshotCollector)
 
 	for {
 		err := wsClient.Listen(ctx, func(cmd websocket.Command) error {
@@ -301,7 +327,7 @@ func runWebSocket() {
 	}
 }
 
-func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client, dockerCli *client.Client, snapshotCollector *metrics.SnapshotCollector) {
+func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client, snapshotCollector *metrics.SnapshotCollector) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -314,7 +340,7 @@ func sendMetricsLoop(ctx context.Context, wsClient *websocket.Client, dockerCli 
 				continue
 			}
 
-			snapshot, err := snapshotCollector.Collect(ctx, dockerCli)
+			snapshot, err := snapshotCollector.Collect(ctx)
 			if err != nil {
 				log.Printf("Error collecting snapshot metrics: %v", err)
 				continue
@@ -341,7 +367,7 @@ func handleWebSocketCommand(ctx context.Context, wsClient *websocket.Client, doc
 
 	switch cmd.Action {
 	case "stats":
-		snapshot, err := snapshotCollector.Collect(ctx, dockerCli)
+		snapshot, err := snapshotCollector.Collect(ctx)
 		if err != nil {
 			result = map[string]interface{}{"error": err.Error()}
 		} else {

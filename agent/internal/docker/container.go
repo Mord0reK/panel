@@ -317,26 +317,27 @@ func readProcNetDev(pid string, info *RealtimeContainerInfo) {
 // cgroupCaches is a caller-managed map keyed by full container ID. Entries are
 // created here for new containers; callers are responsible for pruning entries
 // for containers that no longer exist.
-func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client, cgroupCaches map[string]*CgroupCache) (*RealtimeContainerMetrics, error) {
+// CollectRealtimeContainerMetrics collects per-container metrics using cgroup v2
+// filesystem reads. It uses the ContainerRegistry cache (populated at startup and
+// kept fresh by Docker events) instead of calling ContainerList every second,
+// eliminating the Docker API call from the hot metrics path.
+func CollectRealtimeContainerMetrics(ctx context.Context, registry *ContainerRegistry, cgroupCaches map[string]*CgroupCache) (*RealtimeContainerMetrics, error) {
 	metrics := &RealtimeContainerMetrics{
 		Timestamp: time.Now(),
 	}
 
-	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list containers: %w", err)
-	}
+	containers := registry.List()
 
 	// Pre-populate cache entries for containers we haven't seen before.
 	// Must happen before goroutines are spawned to avoid concurrent map writes.
-	for _, c := range containers.Items {
+	for _, c := range containers {
 		if _, ok := cgroupCaches[c.ID]; !ok {
 			cgroupCaches[c.ID] = &CgroupCache{}
 		}
 	}
 
 	var wg sync.WaitGroup
-	results := make(chan RealtimeContainerInfo, len(containers.Items))
+	results := make(chan RealtimeContainerInfo, len(containers))
 
 	// Worker pool with semaphore to limit concurrent goroutines.
 	// Reduces scheduler overhead and syscall contention by processing
@@ -344,7 +345,7 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client, cg
 	const maxWorkers = 8
 	semaphore := make(chan struct{}, maxWorkers)
 
-	for _, c := range containers.Items {
+	for _, c := range containers {
 		// Each goroutine receives its own cache pointer — no concurrent access
 		// to the same CgroupCache since container IDs are unique.
 		cache := cgroupCaches[c.ID]
@@ -355,18 +356,13 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client, cg
 
 		go func(cID, cName, cImage, cState, cStatus string, labels map[string]string, cache *CgroupCache) {
 			defer func() {
-				<-semaphore  // Release semaphore
+				<-semaphore // Release semaphore
 				wg.Done()
 			}()
 
-			name := cName
-			if len(name) > 0 && name[0] == '/' {
-				name = name[1:]
-			}
-
 			info := RealtimeContainerInfo{
 				ContainerID: cID[:12],
-				Name:        name,
+				Name:        cName,
 				State:       cState,
 				Health:      parseHealthFromStatus(cStatus),
 				Status:      cStatus,
@@ -388,7 +384,7 @@ func CollectRealtimeContainerMetrics(ctx context.Context, cli *client.Client, cg
 			}
 
 			results <- info
-		}(c.ID, c.Names[0], c.Image, string(c.State), string(c.Status), c.Labels, cache)
+		}(c.ID, c.Name, c.Image, c.State, c.Status, c.Labels, cache)
 	}
 
 	go func() {

@@ -9,7 +9,6 @@ import (
 	"agent/internal/config"
 	"agent/internal/docker"
 
-	"github.com/moby/moby/client"
 	gocpu "github.com/shirou/gopsutil/v4/cpu"
 	godisk "github.com/shirou/gopsutil/v4/disk"
 	gomem "github.com/shirou/gopsutil/v4/mem"
@@ -68,6 +67,11 @@ type SnapshotCollector struct {
 	prevHost       *hostCounters
 	prevContainers map[string]containerCounters
 
+	// registry is the source of container metadata. Populated at startup and
+	// kept fresh by Docker events via registry.WatchEvents. nil disables
+	// container metrics collection (useful in tests and when Docker is absent).
+	registry *docker.ContainerRegistry
+
 	// disk usage is cached and refreshed every diskCacheInterval.
 	// Disk usage changes slowly — no need to call statfs() every second.
 	cachedDiskPct float64
@@ -81,14 +85,15 @@ type SnapshotCollector struct {
 
 const diskCacheInterval = 60 * time.Second
 
-func NewSnapshotCollector() *SnapshotCollector {
+func NewSnapshotCollector(registry *docker.ContainerRegistry) *SnapshotCollector {
 	return &SnapshotCollector{
+		registry:       registry,
 		prevContainers: make(map[string]containerCounters),
 		cgroupCaches:   make(map[string]*docker.CgroupCache),
 	}
 }
 
-func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Client) (*Snapshot, error) {
+func (c *SnapshotCollector) Collect(ctx context.Context) (*Snapshot, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -167,8 +172,8 @@ func (c *SnapshotCollector) Collect(ctx context.Context, dockerCli *client.Clien
 	}
 
 	var containers []docker.RealtimeContainerInfo
-	if dockerCli != nil {
-		realtime, err := docker.CollectRealtimeContainerMetrics(ctx, dockerCli, c.cgroupCaches)
+	if c.registry != nil {
+		realtime, err := docker.CollectRealtimeContainerMetrics(ctx, c.registry, c.cgroupCaches)
 		if err == nil && realtime != nil {
 			containers = realtime.Containers
 		}
