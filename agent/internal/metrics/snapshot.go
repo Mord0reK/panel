@@ -286,6 +286,9 @@ func (c *SnapshotCollector) normalizeContainerRates(now time.Time, ts int64, con
 
 	for id := range c.prevContainers {
 		if _, ok := active[id]; !ok {
+			if cache, ok := c.cgroupCaches[id]; ok {
+				cache.Close()
+			}
 			delete(c.prevContainers, id)
 			delete(c.cgroupCaches, id)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -150,18 +151,83 @@ func NewDockerClient() (*client.Client, error) {
 //   - memMax     — container memory limit; changes only via "docker update".
 //   - pid        — init process PID from cgroup.threads; refreshed with a TTL
 //     because it changes on container restart.
+//
+// Persistent file descriptors (fdCPUStat, fdMemCurrent, etc.) are kept open
+// across ticks. Each tick does Seek(0)+Read() instead of open()+read()+close(),
+// eliminating ~4 syscalls per file per container per second.
+// On any I/O error the FD is closed and set to nil; the next tick reopens it.
 type CgroupCache struct {
 	cgroupPath string
 	memMax     uint64
 	memMaxSet  bool
 	pid        string
 	pidChecked time.Time
+
+	// Persistent FDs — kept open to avoid open()/close() per tick.
+	fdCPUStat    *os.File // <cgroup>/cpu.stat
+	fdMemCurrent *os.File // <cgroup>/memory.current
+	fdMemStat    *os.File // <cgroup>/memory.stat
+	fdIOStat     *os.File // <cgroup>/io.stat
+	fdNetDev     *os.File // /proc/<pid>/net/dev
+	fdNetDevPid  string   // pid for which fdNetDev is currently open
+
+	// readBuf is reused across all reads within a single tick.
+	// Safe: each CgroupCache is accessed by exactly one goroutine at a time
+	// (keyed by container ID, no two goroutines share the same cache).
+	readBuf [16384]byte
+}
+
+// Close releases all open file descriptors held by this cache.
+// Must be called when the associated container is removed from the registry.
+func (c *CgroupCache) Close() {
+	for _, fd := range []*os.File{
+		c.fdCPUStat, c.fdMemCurrent, c.fdMemStat, c.fdIOStat, c.fdNetDev,
+	} {
+		if fd != nil {
+			fd.Close()
+		}
+	}
+	c.fdCPUStat = nil
+	c.fdMemCurrent = nil
+	c.fdMemStat = nil
+	c.fdIOStat = nil
+	c.fdNetDev = nil
+	c.fdNetDevPid = ""
 }
 
 // cgroupPIDCacheTTL is how long we reuse a cached container PID before
 // re-reading cgroup.threads. A container restart changes the PID; 5 s gives
 // us at most one missed net-stats tick after a restart.
 const cgroupPIDCacheTTL = 5 * time.Second
+
+// readVirtualFileFD reads a virtual (kernel-generated) file via a persistent
+// file descriptor. On the first call it opens the file and stores the FD in
+// *fd. Subsequent calls do Seek(0)+Read() instead of open()+read()+close(),
+// eliminating two syscalls per file per tick.
+//
+// On any I/O error the FD is closed and set to nil; the next call reopens it.
+// buf is a caller-supplied scratch buffer; the returned slice is a sub-slice of buf.
+func readVirtualFileFD(fd **os.File, path string, buf []byte) ([]byte, error) {
+	if *fd == nil {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		*fd = f
+	}
+	if _, err := (*fd).Seek(0, io.SeekStart); err != nil {
+		(*fd).Close()
+		*fd = nil
+		return nil, err
+	}
+	n, err := (*fd).Read(buf)
+	if err != nil && err != io.EOF {
+		(*fd).Close()
+		*fd = nil
+		return nil, err
+	}
+	return buf[:n], nil
+}
 
 // cgroupBasePath returns the cgroup v2 path for a given full container ID.
 // Tries the systemd slice path first (most common on Ubuntu/Debian with Docker),
@@ -200,7 +266,7 @@ func readCgroupStatsWithCache(containerID string, info *RealtimeContainerInfo, c
 	base := cache.cgroupPath
 
 	// ── CPU ────────────────────────────────────────────────────────────
-	if data, err := os.ReadFile(base + "/cpu.stat"); err == nil {
+	if data, err := readVirtualFileFD(&cache.fdCPUStat, base+"/cpu.stat", cache.readBuf[:]); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			if strings.HasPrefix(line, "usage_usec ") {
 				var usec uint64
@@ -212,9 +278,12 @@ func readCgroupStatsWithCache(containerID string, info *RealtimeContainerInfo, c
 	}
 
 	// ── Memory ─────────────────────────────────────────────────────────
-	if memUsed, err := readUint64File(base + "/memory.current"); err == nil {
+	if memData, err := readVirtualFileFD(&cache.fdMemCurrent, base+"/memory.current", cache.readBuf[:]); err == nil {
+		var memUsed uint64
+		fmt.Sscanf(strings.TrimSpace(string(memData)), "%d", &memUsed)
+
 		// Subtract inactive_file (page cache) the same way docker stats does.
-		if statData, err := os.ReadFile(base + "/memory.stat"); err == nil {
+		if statData, err := readVirtualFileFD(&cache.fdMemStat, base+"/memory.stat", cache.readBuf[:]); err == nil {
 			for _, line := range strings.Split(string(statData), "\n") {
 				if strings.HasPrefix(line, "inactive_file ") {
 					var inactive uint64
@@ -248,7 +317,7 @@ func readCgroupStatsWithCache(containerID string, info *RealtimeContainerInfo, c
 	}
 
 	// ── Block I/O ──────────────────────────────────────────────────────
-	if data, err := os.ReadFile(base + "/io.stat"); err == nil {
+	if data, err := readVirtualFileFD(&cache.fdIOStat, base+"/io.stat", cache.readBuf[:]); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			for _, field := range strings.Fields(line) {
 				switch {
@@ -280,17 +349,32 @@ func readCgroupStatsWithCache(containerID string, info *RealtimeContainerInfo, c
 		}
 	}
 	if cache.pid != "" {
-		readProcNetDev(cache.pid, info)
+		readProcNetDev(cache.pid, cache, info)
 	}
 }
 
 // readProcNetDev reads network counters from /proc/<pid>/net/dev for the
 // network namespace of the given PID (i.e. the container's netns).
-func readProcNetDev(pid string, info *RealtimeContainerInfo) {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%s/net/dev", pid))
+// It uses a persistent FD from cache to avoid open()/close() per tick.
+// When the PID changes (container restart) the old FD is closed and reopened.
+func readProcNetDev(pid string, cache *CgroupCache, info *RealtimeContainerInfo) {
+	// If PID changed (container restart), close the stale FD.
+	if cache.fdNetDevPid != pid {
+		if cache.fdNetDev != nil {
+			cache.fdNetDev.Close()
+			cache.fdNetDev = nil
+			cache.fdNetDevPid = ""
+		}
+	}
+
+	path := fmt.Sprintf("/proc/%s/net/dev", pid)
+	data, err := readVirtualFileFD(&cache.fdNetDev, path, cache.readBuf[:])
 	if err != nil {
 		return
 	}
+	// Record the PID for which fdNetDev is open (only after a successful read).
+	cache.fdNetDevPid = pid
+
 	lines := strings.Split(string(data), "\n")
 	// First two lines are headers.
 	for _, line := range lines[2:] {
