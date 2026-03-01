@@ -160,13 +160,14 @@ func (r *ContainerRegistry) handleEvent(ctx context.Context, cli *client.Client,
 	}
 
 	switch string(ev.Action) {
-	case "start":
-		// ContainerList is infrequent here (only on container start), not in hot path.
+	case "create", "start":
+		// Both "create" and "start" trigger a refresh of container metadata.
+		// ContainerList is infrequent here (only on container start/create), not in hot path.
 		ctxT, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		list, err := cli.ContainerList(ctxT, client.ContainerListOptions{All: true})
 		if err != nil {
-			log.Printf("[registry] ContainerList after start event: %v", err)
+			log.Printf("[registry] ContainerList after %s event: %v", ev.Action, err)
 			return
 		}
 		for _, c := range list.Items {
