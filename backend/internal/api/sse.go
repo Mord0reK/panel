@@ -216,7 +216,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 			if host == nil {
 				continue
 			}
-			containersMap := h.bufferManager.GetLatestForServerAtTimestamp(uuid, host.Timestamp)
+			containersMap := h.bufferManager.GetLatestForServerAtTimestamp(uuid)
 
 			// Fetch container states from DB with caching (10s TTL).
 			// State/health/status change rarely, so we don't need to query DB every SSE tick.

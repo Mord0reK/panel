@@ -96,7 +96,7 @@ func (bm *BufferManager) GetLatestForServer(agentUUID string) map[string]MetricP
 	return latest
 }
 
-func (bm *BufferManager) GetLatestForServerAtTimestamp(agentUUID string, timestamp int64) map[string]MetricPoint {
+func (bm *BufferManager) GetLatestForServerAtTimestamp(agentUUID string) map[string]MetricPoint {
 	bm.mu.RLock()
 	containers, ok := bm.Buffers[agentUUID]
 	bm.mu.RUnlock()
@@ -111,10 +111,10 @@ func (bm *BufferManager) GetLatestForServerAtTimestamp(agentUUID string, timesta
 		if len(points) == 0 {
 			continue
 		}
+		// Return the latest point for each container, regardless of timestamp.
+		// Host and containers may have different timestamps due to collection timing.
 		last := points[len(points)-1]
-		if last.Timestamp == timestamp {
-			latest[containerID] = last
-		}
+		latest[containerID] = last
 	}
 	return latest
 }
