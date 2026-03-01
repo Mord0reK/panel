@@ -160,14 +160,22 @@ func (r *ContainerRegistry) handleEvent(ctx context.Context, cli *client.Client,
 	}
 
 	switch string(ev.Action) {
-	case "create", "start":
-		// Both "create" and "start" trigger a refresh of container metadata.
-		// ContainerList is infrequent here (only on container start/create), not in hot path.
+	case "start":
+		// "start" event fires before Docker updates the state in its API —
+		// calling ContainerList here would often return state="created" instead
+		// of "running". We know the container is running at this point, so set
+		// it directly. If the container crashes immediately, the "die" event
+		// will follow and correct the state to "exited".
+		r.setState(id, "running", "")
+
+	case "create":
+		// "create" event fires when a new container is created but not yet started.
+		// ContainerList is safe here — state is stable ("created").
 		ctxT, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		list, err := cli.ContainerList(ctxT, client.ContainerListOptions{All: true})
 		if err != nil {
-			log.Printf("[registry] ContainerList after %s event: %v", ev.Action, err)
+			log.Printf("[registry] ContainerList after create event: %v", err)
 			return
 		}
 		for _, c := range list.Items {
