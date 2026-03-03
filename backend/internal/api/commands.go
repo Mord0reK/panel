@@ -71,3 +71,41 @@ func (h *CommandsHandler) HandleContainerCommand(w http.ResponseWriter, r *http.
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(resp)
 }
+
+func (h *CommandsHandler) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	uuid := vars["uuid"]
+	containerID := vars["id"]
+
+	resp, err := h.hub.RequestAgent(uuid, "check-updates", containerID)
+	if err != nil {
+		if err.Error() == "agent not connected" {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+func (h *CommandsHandler) HandleUpdate(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	uuid := vars["uuid"]
+	containerID := vars["id"]
+
+	resp, err := h.hub.RequestAgent(uuid, "update", containerID)
+	if err != nil {
+		if err.Error() == "agent not connected" {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}

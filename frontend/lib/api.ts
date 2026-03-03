@@ -137,6 +137,26 @@ export const api = {
     )
   },
 
+  checkContainerUpdate(uuid: string, containerId: string) {
+    return apiFetch<unknown>(
+      `/api/servers/${uuid}/containers/${containerId}/check-update`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    )
+  },
+
+  updateContainer(uuid: string, containerId: string) {
+    return apiFetch<unknown>(
+      `/api/servers/${uuid}/containers/${containerId}/update`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    )
+  },
+
   // -------------------------------------------------------------------------
   // Metrics — history
   // -------------------------------------------------------------------------
