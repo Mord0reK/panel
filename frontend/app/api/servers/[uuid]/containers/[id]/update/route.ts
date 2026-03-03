@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendFetch } from '@/lib/backend'
 
 type RouteParams = {
   params: Promise<{
@@ -12,16 +13,12 @@ export async function POST(
   { params }: RouteParams
 ) {
   const { uuid, id } = await params
-  const backendUrl = process.env.BACKEND_URL || 'http://localhost:8080'
 
   try {
-    const response = await fetch(
-      `${backendUrl}/api/servers/${uuid}/containers/${id}/update`,
+    const response = await backendFetch(
+      `/api/servers/${uuid}/containers/${id}/update`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
       }
     )
 

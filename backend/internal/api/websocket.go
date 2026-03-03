@@ -138,28 +138,6 @@ type containerMeta struct {
 	name, image, project, service, state, health, status string
 }
 
-// activeIDSet builds a set from a slice for O(1) membership tests.
-func activeIDSet(ids []string) map[string]struct{} {
-	s := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		s[id] = struct{}{}
-	}
-	return s
-}
-
-// setsEqual reports whether two string sets contain the same keys.
-func setsEqual(a, b map[string]struct{}) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if _, ok := b[k]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
 func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 	defer func() {
 		h.hub.Unregister <- agent
@@ -181,18 +159,10 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 	// containerMetaCache: skip Upsert when metadata is unchanged.
 	containerMetaCache := make(map[string]containerMeta)
 
-	// lastActiveIDs: skip MarkRemovedNotInList when the container set is unchanged.
-	// Initialized to nil so the first message always triggers a sync.
-	var lastActiveIDs map[string]struct{}
-	var lastMarkRemovedAt time.Time
-
 	// lastSeenAt: throttle UpdateLastSeen to once per 10 s (offlineThreshold = 30 s).
 	var lastSeenAt time.Time
 
-	const (
-		lastSeenInterval    = 10 * time.Second
-		markRemovedInterval = 30 * time.Second
-	)
+	const lastSeenInterval = 10 * time.Second
 
 	for {
 		_, message, err := agent.Conn.ReadMessage()
@@ -283,18 +253,6 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 						}
 						h.bufferManager.AddMetric(agent.UUID, c.ContainerID, point)
 					}
-				}
-
-				// Mark containers as "removed" when the agent no longer reports them
-				// (e.g. docker compose down). Only execute when the active-container set
-				// changes, or every 30 s for the TTL hard-delete cleanup.
-				currentSet := activeIDSet(activeIDs)
-				if !setsEqual(currentSet, lastActiveIDs) || time.Since(lastMarkRemovedAt) >= markRemovedInterval {
-					if err := models.MarkRemovedNotInList(h.db, agent.UUID, activeIDs); err != nil {
-						log.Printf("WebSocket: failed to sync container list for agent %s: %v", agent.UUID, err)
-					}
-					lastActiveIDs = currentSet
-					lastMarkRemovedAt = time.Now()
 				}
 
 				// UpdateLastSeen: throttle to every 10 s — server shows offline after 30 s.

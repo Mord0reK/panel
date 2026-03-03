@@ -68,7 +68,6 @@ const STATE_LABELS: Record<string, string> = {
   paused: 'Wstrzymany',
   restarting: 'Restartowanie',
   removing: 'Usuwanie',
-  removed: 'Usunięty',
   created: 'Utworzony',
   dead: 'Martwy',
 }
@@ -107,7 +106,6 @@ function StateBadge({ state }: { state: string }) {
         </span>
       )
     case 'removing':
-    case 'removed':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800/60 px-2 py-0.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-700/50">
           <span className="size-1.5 rounded-full bg-zinc-600" />
@@ -370,14 +368,12 @@ function ContainerRow({
   selected: boolean
   onSelect: (id: string, checked: boolean) => void
 }) {
-  const isRemoved = c.state === 'removed'
   const uptime = c.status ? parseUptime(c.status) : ''
 
   return (
     <tr
       className={[
-        'border-b border-zinc-800/50 transition-colors',
-        isRemoved ? 'opacity-40 hover:opacity-60' : 'hover:bg-zinc-900/30',
+        'border-b border-zinc-800/50 transition-colors hover:bg-zinc-900/30',
         bulkMode && selected ? 'bg-zinc-800/40' : '',
       ]
         .filter(Boolean)

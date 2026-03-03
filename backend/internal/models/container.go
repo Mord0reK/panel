@@ -2,8 +2,6 @@ package models
 
 import (
 	"database/sql"
-	"fmt"
-	"strings"
 	"time"
 )
 
@@ -105,48 +103,4 @@ func (c *Container) DeleteBulk(db *sql.DB, agentUUID string, ids []string) (dele
 		failed = []string{}
 	}
 	return
-}
-
-// removedTTL is how long a "removed" container is kept in the database before
-// it is hard-deleted. Containers not reported by docker ps -a are unlikely to
-// come back, so we discard them after this duration to keep the UI clean.
-const removedTTL = time.Hour
-
-// MarkRemovedNotInList marks containers as "removed" for the given agent when
-// they are no longer reported by the agent (e.g. docker compose down).
-// This keeps them visible in the UI (greyed out) instead of deleting them.
-// When the container reappears (docker compose up), Upsert will restore its real state.
-// Containers that have been in "removed" state longer than removedTTL are hard-deleted.
-func MarkRemovedNotInList(db *sql.DB, agentUUID string, activeIDs []string) error {
-	// Step 1: hard-delete containers that have been removed for longer than TTL.
-	cutoff := time.Now().Add(-removedTTL)
-	if _, err := db.Exec(
-		`DELETE FROM containers WHERE agent_uuid = ? AND state = 'removed' AND last_seen < ?`,
-		agentUUID, cutoff,
-	); err != nil {
-		return fmt.Errorf("cleanup removed containers: %w", err)
-	}
-
-	// Step 2: mark currently-active list's missing entries as "removed".
-	if len(activeIDs) == 0 {
-		// Agent sent an empty list — mark all containers for this agent as removed.
-		_, err := db.Exec(`UPDATE containers SET state = 'removed' WHERE agent_uuid = ?`, agentUUID)
-		return err
-	}
-
-	placeholders := strings.Repeat("?,", len(activeIDs))
-	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
-
-	args := make([]interface{}, 0, len(activeIDs)+1)
-	args = append(args, agentUUID)
-	for _, id := range activeIDs {
-		args = append(args, id)
-	}
-
-	query := fmt.Sprintf(
-		`UPDATE containers SET state = 'removed' WHERE agent_uuid = ? AND container_id NOT IN (%s)`,
-		placeholders,
-	)
-	_, err := db.Exec(query, args...)
-	return err
 }
