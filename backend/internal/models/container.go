@@ -104,3 +104,30 @@ func (c *Container) DeleteBulk(db *sql.DB, agentUUID string, ids []string) (dele
 	}
 	return
 }
+
+// ReplaceAllForAgent usuwa wszystkie kontenery dla agenta i wstawia nowe z listy.
+// Używane przy starcie agenta żeby zsynchronizować bazę z aktualnym stanem kontenerów.
+func ReplaceAllForAgent(db *sql.DB, agentUUID string, containers []Container) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`DELETE FROM containers WHERE agent_uuid = ?`, agentUUID)
+	if err != nil {
+		return err
+	}
+
+	for _, cont := range containers {
+		_, err = tx.Exec(`
+			INSERT INTO containers (agent_uuid, container_id, name, image, project, service, state, health, status, first_seen, last_seen)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+			agentUUID, cont.ContainerID, cont.Name, cont.Image, cont.Project, cont.Service, cont.State, cont.Health, cont.Status)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}

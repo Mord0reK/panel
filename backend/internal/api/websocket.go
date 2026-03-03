@@ -138,6 +138,18 @@ type containerMeta struct {
 	name, image, project, service, state, health, status string
 }
 
+func mapsEqual(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 	defer func() {
 		h.hub.Unregister <- agent
@@ -158,6 +170,9 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 	// --- per-connection write-deduplication caches ---
 	// containerMetaCache: skip Upsert when metadata is unchanged.
 	containerMetaCache := make(map[string]containerMeta)
+
+	// lastContainerIDs: track container list to detect changes and sync with database.
+	var lastContainerIDs map[string]struct{}
 
 	// lastSeenAt: throttle UpdateLastSeen to once per 10 s (offlineThreshold = 30 s).
 	var lastSeenAt time.Time
@@ -205,10 +220,21 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 					})
 				}
 
-				// Process metrics
+				// Process metrics and sync container list when it changes.
 				activeIDs := make([]string, 0, len(m.Containers))
+				containersForReplace := make([]models.Container, 0, len(m.Containers))
 				for _, c := range m.Containers {
 					activeIDs = append(activeIDs, c.ContainerID)
+					containersForReplace = append(containersForReplace, models.Container{
+						ContainerID: c.ContainerID,
+						Name:        c.Name,
+						Image:       c.Image,
+						Project:     c.Project,
+						Service:     c.Service,
+						State:       c.State,
+						Health:      c.Health,
+						Status:      c.Status,
+					})
 
 					// Upsert container metadata only when it actually changed.
 					// Container state/health/status changes are infrequent; upsetting on
@@ -253,6 +279,18 @@ func (h *WebSocketHandler) readPump(agent *ws.AgentConnection) {
 						}
 						h.bufferManager.AddMetric(agent.UUID, c.ContainerID, point)
 					}
+				}
+
+				// Sync container list when it changes (including first message).
+				currentSet := make(map[string]struct{}, len(activeIDs))
+				for _, id := range activeIDs {
+					currentSet[id] = struct{}{}
+				}
+				if !mapsEqual(currentSet, lastContainerIDs) {
+					if err := models.ReplaceAllForAgent(h.db, agent.UUID, containersForReplace); err != nil {
+						log.Printf("WebSocket: failed to sync container list for agent %s: %v", agent.UUID, err)
+					}
+					lastContainerIDs = currentSet
 				}
 
 				// UpdateLastSeen: throttle to every 10 s — server shows offline after 30 s.
