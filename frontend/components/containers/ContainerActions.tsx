@@ -8,7 +8,9 @@ import {
   MoreHorizontalIcon,
   Trash2Icon,
   AlertTriangleIcon,
+  RefreshCwIcon,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -40,7 +42,7 @@ interface ContainerActionsProps {
 }
 
 export function ContainerActions({ uuid, containerId, containerName, onDeleted, onAction }: ContainerActionsProps) {
-  const [pending, setPending] = useState<ContainerAction | 'delete' | null>(null)
+  const [pending, setPending] = useState<ContainerAction | 'delete' | 'update' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Delete dialog state
@@ -56,6 +58,109 @@ export function ContainerActions({ uuid, containerId, containerName, onDeleted, 
       onAction?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Błąd wykonania akcji')
+    } finally {
+      setPending(null)
+    }
+  }
+
+  async function handleUpdate() {
+    setPending('update')
+    setError(null)
+
+    // Show loading toast
+    const loadingToast = toast.loading('Sprawdzanie aktualizacji...')
+
+    try {
+      // First check for updates
+      const checkResponse = await api.checkContainerUpdate(uuid, containerId)
+      const checkData = checkResponse as any
+
+      // Check if there's an error in the response
+      if (checkData.error) {
+        toast.dismiss(loadingToast)
+        toast.error('Błąd sprawdzania aktualizacji', {
+          description: checkData.error
+        })
+        setPending(null)
+        return
+      }
+
+      // Get update info from the response
+      const updates = checkData.updates || []
+      const updateInfo = updates[0]
+
+      if (!updateInfo) {
+        toast.dismiss(loadingToast)
+        toast.error('Nie można sprawdzić aktualizacji')
+        setPending(null)
+        return
+      }
+
+      // Check status
+      if (updateInfo.status === 'local') {
+        toast.dismiss(loadingToast)
+        toast.info('Obraz lokalny', {
+          description: 'Ten kontener używa lokalnego obrazu (nie można sprawdzić aktualizacji)'
+        })
+        setPending(null)
+        return
+      }
+
+      if (updateInfo.status === 'rate_limited') {
+        toast.dismiss(loadingToast)
+        toast.warning('Limit zapytań', {
+          description: 'Przekroczono limit zapytań do rejestru Docker. Spróbuj ponownie później.'
+        })
+        setPending(null)
+        return
+      }
+
+      if (updateInfo.status === 'up_to_date' || !updateInfo.update_available) {
+        toast.dismiss(loadingToast)
+        toast.success('Kontener jest aktualny', {
+          description: 'Używasz najnowszej wersji obrazu'
+        })
+        setPending(null)
+        return
+      }
+
+      // Update available - proceed with update
+      toast.dismiss(loadingToast)
+      const updatingToast = toast.loading('Aktualizowanie kontenera...')
+
+      const updateResponse = await api.updateContainer(uuid, containerId)
+      const updateData = updateResponse as any
+
+      if (updateData.error) {
+        toast.dismiss(updatingToast)
+        toast.error('Błąd aktualizacji', {
+          description: updateData.error
+        })
+        setPending(null)
+        return
+      }
+
+      const results = updateData.results || []
+      const result = results[0]
+
+      if (result && result.success) {
+        toast.dismiss(updatingToast)
+        toast.success('Kontener zaktualizowany', {
+          description: result.message || 'Kontener został pomyślnie zaktualizowany'
+        })
+        onAction?.()
+      } else {
+        toast.dismiss(updatingToast)
+        toast.error('Błąd aktualizacji', {
+          description: result?.message || 'Nie udało się zaktualizować kontenera'
+        })
+      }
+    } catch (err) {
+      toast.dismiss(loadingToast)
+      const errorMsg = err instanceof Error ? err.message : 'Błąd aktualizacji kontenera'
+      toast.error('Błąd aktualizacji', {
+        description: errorMsg
+      })
     } finally {
       setPending(null)
     }
@@ -132,6 +237,14 @@ export function ContainerActions({ uuid, containerId, containerName, onDeleted, 
           >
             <RotateCwIcon className="size-4" />
             Restartuj
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={handleUpdate}
+            disabled={isBusy}
+          >
+            <RefreshCwIcon className="size-4" />
+            Aktualizuj
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
