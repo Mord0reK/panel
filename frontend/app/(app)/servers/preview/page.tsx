@@ -25,6 +25,7 @@ const MOCK: LiveServerSnapshot = {
   memory: 12_884_901_888,       // ~12 GB
   mem_percent: 75.2,
   memory_total: 17_179_869_184, // 16 GB
+  disk_used: 341_500_000_000,     // ~341.5 GB (68.3% of 500GB)
   disk_used_percent: 68.3,
   disk_read_bytes_per_sec: 2_097_152,   // 2 MB/s
   disk_write_bytes_per_sec: 524_288,    // 512 KB/s
