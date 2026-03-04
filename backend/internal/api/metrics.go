@@ -34,6 +34,7 @@ type rawHostMetricPoint struct {
 	DiskWriteBytesPerSec uint64  `json:"disk_write_bytes_per_sec"`
 	NetRxBytesPerSec     uint64  `json:"net_rx_bytes_per_sec"`
 	NetTxBytesPerSec     uint64  `json:"net_tx_bytes_per_sec"`
+	DiskUsed             uint64  `json:"disk_used"`
 	DiskUsedPercent      float64 `json:"disk_used_percent"`
 }
 
@@ -81,6 +82,7 @@ func toRawHostBufferPoints(points []buffer.HostMetricPoint) []rawHostMetricPoint
 			DiskWriteBytesPerSec: p.DiskWriteBytesPerSec,
 			NetRxBytesPerSec:     p.NetRxBytesPerSec,
 			NetTxBytesPerSec:     p.NetTxBytesPerSec,
+			DiskUsed:             p.DiskUsed,
 			DiskUsedPercent:      p.DiskUsedPercent,
 		}
 	}

@@ -116,6 +116,7 @@ export function useServerMetrics(
           cpu: p.cpu,
           mem_used: p.mem_used,
           mem_percent: p.mem_percent,
+          disk_used: p.disk_used ?? 0,
           disk_read_bytes_per_sec: p.disk_read_bytes_per_sec,
           disk_write_bytes_per_sec: p.disk_write_bytes_per_sec,
           net_rx_bytes_per_sec: p.net_rx_bytes_per_sec,

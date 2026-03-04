@@ -214,7 +214,6 @@ function buildOption(
     grid: { top: 36, right: 16, bottom: 32, left: 72 },
     tooltip: {
       trigger: 'axis',
-      alwaysShowContent: true,
       backgroundColor: '#18181b',
       borderColor: '#27272a',
       textStyle: { color: '#e4e4e7', fontSize: 12 },

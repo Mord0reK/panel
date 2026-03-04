@@ -169,7 +169,6 @@ export function LiveChart({ points, type }: LiveChartProps) {
       },
       tooltip: {
         trigger: 'axis',
-        alwaysShowContent: true,
         backgroundColor: '#18181b',
         borderColor: '#27272a',
         textStyle: { color: '#e4e4e7', fontSize: 12 },
@@ -178,12 +177,24 @@ export function LiveChart({ points, type }: LiveChartProps) {
             seriesName: string
             value: number
             axisValue: string
+            dataIndex?: number
           }[]
           if (!Array.isArray(list) || list.length === 0) return ''
           list.sort((a, b) => b.value - a.value)
+
+          let diskUsedSuffix = ''
+          if (type === 'disk_percent') {
+            const pointIndex = list[0]?.dataIndex
+            const diskUsed =
+              typeof pointIndex === 'number' ? displayPts[pointIndex]?.disk_used : undefined
+            if (typeof diskUsed === 'number' && isFinite(diskUsed) && diskUsed > 0) {
+              diskUsedSuffix = ` (${fmtBytes(diskUsed)})`
+            }
+          }
+
           let html = `<div style="margin-bottom:4px;color:#a1a1aa">${list[0].axisValue}</div>`
           for (const item of list) {
-            html += `<div>${item.seriesName}: <b>${tooltipFormatter(item.value)}</b></div>`
+            html += `<div>${item.seriesName}: <b>${tooltipFormatter(item.value)}${diskUsedSuffix}</b></div>`
           }
           return html
         },

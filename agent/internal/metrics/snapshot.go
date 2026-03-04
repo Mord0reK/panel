@@ -27,6 +27,7 @@ type HostSnapshot struct {
 	DiskWriteBytesPerSec uint64  `json:"disk_write_bytes_per_sec"`
 	NetRxBytesPerSec     uint64  `json:"net_rx_bytes_per_sec"`
 	NetTxBytesPerSec     uint64  `json:"net_tx_bytes_per_sec"`
+	DiskUsed             uint64  `json:"disk_used"`
 	DiskUsedPercent      float64 `json:"disk_used_percent"`
 
 	DiskReadBytesTotal  uint64 `json:"disk_read_bytes_total"`
@@ -74,8 +75,9 @@ type SnapshotCollector struct {
 
 	// disk usage is cached and refreshed every diskCacheInterval.
 	// Disk usage changes slowly — no need to call statfs() every second.
-	cachedDiskPct float64
-	lastDiskCheck time.Time
+	cachedDiskUsed uint64
+	cachedDiskPct  float64
+	lastDiskCheck  time.Time
 
 	// cgroupCaches holds per-container cgroup data that rarely changes.
 	// Keyed by full container ID. Entries for stopped/removed containers
@@ -132,6 +134,8 @@ func (c *SnapshotCollector) Collect(ctx context.Context) (*Snapshot, error) {
 		}
 	}
 
+	diskUsed, diskUsedPercent := c.getDiskUsage(ctx)
+
 	host := HostSnapshot{
 		Timestamp:           ts,
 		CPU:                 0, // overwritten below once we have a previous sample
@@ -142,7 +146,8 @@ func (c *SnapshotCollector) Collect(ctx context.Context) (*Snapshot, error) {
 		DiskWriteBytesTotal: diskWriteTotal,
 		NetRxBytesTotal:     netRxTotal,
 		NetTxBytesTotal:     netTxTotal,
-		DiskUsedPercent:     c.getDiskUsedPercent(ctx),
+		DiskUsed:            diskUsed,
+		DiskUsedPercent:     diskUsedPercent,
 	}
 
 	if c.prevHost != nil {
@@ -188,23 +193,24 @@ func (c *SnapshotCollector) Collect(ctx context.Context) (*Snapshot, error) {
 	}, nil
 }
 
-// getDiskUsedPercent returns the cached disk usage percent for the root
+// getDiskUsage returns cached disk usage (used bytes + used percent) for the root
 // partition, refreshing the cache at most once every diskCacheInterval.
 // This avoids calling statfs() on every partition every second — on Docker
 // hosts /proc/mounts contains overlay2 mounts for every running container.
 // NOTE: must be called with c.mu held.
-func (c *SnapshotCollector) getDiskUsedPercent(ctx context.Context) float64 {
+func (c *SnapshotCollector) getDiskUsage(ctx context.Context) (uint64, float64) {
 	if time.Since(c.lastDiskCheck) < diskCacheInterval {
-		return c.cachedDiskPct
+		return c.cachedDiskUsed, c.cachedDiskPct
 	}
 
 	// Pass all=true to obtain the Fstype field for filtering.
 	parts, err := godisk.PartitionsWithContext(ctx, true)
 	if err != nil {
-		return c.cachedDiskPct
+		return c.cachedDiskUsed, c.cachedDiskPct
 	}
 
 	// Prefer the root filesystem; fall back to the first non-ignored entry.
+	var fallbackUsed uint64
 	var fallbackPct float64
 	foundFallback := false
 	for _, part := range parts {
@@ -216,21 +222,24 @@ func (c *SnapshotCollector) getDiskUsedPercent(ctx context.Context) float64 {
 			continue
 		}
 		if part.Mountpoint == "/" {
+			c.cachedDiskUsed = usage.Used
 			c.cachedDiskPct = usage.UsedPercent
 			c.lastDiskCheck = time.Now()
-			return c.cachedDiskPct
+			return c.cachedDiskUsed, c.cachedDiskPct
 		}
 		if !foundFallback {
+			fallbackUsed = usage.Used
 			fallbackPct = usage.UsedPercent
 			foundFallback = true
 		}
 	}
 
 	if foundFallback {
+		c.cachedDiskUsed = fallbackUsed
 		c.cachedDiskPct = fallbackPct
 		c.lastDiskCheck = time.Now()
 	}
-	return c.cachedDiskPct
+	return c.cachedDiskUsed, c.cachedDiskPct
 }
 
 func (c *SnapshotCollector) normalizeContainerRates(now time.Time, ts int64, containers []docker.RealtimeContainerInfo) []docker.RealtimeContainerInfo {

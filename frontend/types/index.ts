@@ -89,6 +89,7 @@ export interface RawHostMetricPoint {
   cpu: number
   mem_used: number
   mem_percent: number
+  disk_used: number
   disk_read_bytes_per_sec: number
   disk_write_bytes_per_sec: number
   net_rx_bytes_per_sec: number
@@ -193,6 +194,7 @@ export interface LiveServerSnapshot {
   memory: number // mem_used w bajtach
   mem_percent: number
   memory_total: number
+  disk_used: number
   disk_used_percent: number
   disk_read_bytes_per_sec: number
   disk_write_bytes_per_sec: number
@@ -219,6 +221,7 @@ export interface LiveServerHostRaw {
   DiskWriteBytesPerSec: number
   NetRxBytesPerSec: number
   NetTxBytesPerSec: number
+  DiskUsed: number
   DiskUsedPercent: number
 }
 
@@ -255,6 +258,7 @@ export interface LiveServerHost {
   disk_write_bytes_per_sec: number
   net_rx_bytes_per_sec: number
   net_tx_bytes_per_sec: number
+  disk_used: number
   disk_used_percent: number
 }
 
@@ -318,6 +322,7 @@ export function normalizeLiveHost(raw: LiveServerHostRaw): LiveServerHost {
     disk_write_bytes_per_sec: raw.DiskWriteBytesPerSec,
     net_rx_bytes_per_sec: raw.NetRxBytesPerSec,
     net_tx_bytes_per_sec: raw.NetTxBytesPerSec,
+    disk_used: raw.DiskUsed ?? 0,
     disk_used_percent: raw.DiskUsedPercent ?? 0,
   }
 }

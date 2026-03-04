@@ -14,6 +14,7 @@ type HostMetricPoint struct {
 	DiskWriteBytesPerSec uint64
 	NetRxBytesPerSec     uint64
 	NetTxBytesPerSec     uint64
+	DiskUsed             uint64
 	DiskUsedPercent      float64
 }
 

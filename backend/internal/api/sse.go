@@ -147,6 +147,7 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 				MemPercent  float64 `json:"mem_percent"`
 				MemoryTotal uint64  `json:"memory_total"`
 
+				DiskUsed             uint64  `json:"disk_used"`
 				DiskUsedPercent      float64 `json:"disk_used_percent"`
 				DiskReadBytesPerSec  uint64  `json:"disk_read_bytes_per_sec"`
 				DiskWriteBytesPerSec uint64  `json:"disk_write_bytes_per_sec"`
@@ -173,6 +174,7 @@ func (h *SSEHandler) HandleLiveAll(w http.ResponseWriter, r *http.Request) {
 					MemPercent:  host.MemPercent,
 					MemoryTotal: host.MemoryTotal,
 
+					DiskUsed:             host.DiskUsed,
 					DiskUsedPercent:      host.DiskUsedPercent,
 					DiskReadBytesPerSec:  host.DiskReadBytesPerSec,
 					DiskWriteBytesPerSec: host.DiskWriteBytesPerSec,
@@ -281,6 +283,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 				DiskWriteBytesPerSec uint64  `json:"DiskWriteBytesPerSec"`
 				NetRxBytesPerSec     uint64  `json:"NetRxBytesPerSec"`
 				NetTxBytesPerSec     uint64  `json:"NetTxBytesPerSec"`
+				DiskUsed             uint64  `json:"DiskUsed"`
 				DiskUsedPercent      float64 `json:"DiskUsedPercent"`
 			}
 
@@ -296,6 +299,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 					DiskWriteBytesPerSec: host.DiskWriteBytesPerSec,
 					NetRxBytesPerSec:     host.NetRxBytesPerSec,
 					NetTxBytesPerSec:     host.NetTxBytesPerSec,
+					DiskUsed:             host.DiskUsed,
 					DiskUsedPercent:      host.DiskUsedPercent,
 				},
 				"containers": containerSlice,

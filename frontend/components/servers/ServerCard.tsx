@@ -9,6 +9,7 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
 } from 'lucide-react'
+import { formatBytes } from '@/lib/formatters'
 
 import { ServerIconDisplay } from '@/components/servers/ServerIconDisplay'
 import { formatBitsPerSec } from '@/lib/formatters'
@@ -124,6 +125,11 @@ export function ServerCard({ hostname, uuid, snapshot, icon, displayName }: Serv
           <p className={`font-mono text-1xl font-bold ${disk.text}`}>
             {snapshot ? snapshot.disk_used_percent.toFixed(2) : '—'}
             <span className="text-base text-zinc-500">%</span>
+            {snapshot && snapshot.disk_used != null && (
+              <span className="ml-1 text-sm text-zinc-400">
+                ({formatBytes(snapshot.disk_used)})
+              </span>
+            )}
           </p>
           <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-zinc-800">
             <div className={`h-full rounded-full ${disk.bar} transition-all`} style={{ width: snapshot ? `${Math.min(snapshot.disk_used_percent, 100)}%` : '0%' }} />

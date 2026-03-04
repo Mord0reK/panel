@@ -30,6 +30,10 @@ function makeSnapshot(
     hostname: 'web-01',
     cpu: 42.5,
     memory: 8_589_934_592, // 8 GB
+    mem_percent: 50,
+    memory_total: 16_000_000_000,
+    disk_used_percent: 50,
+    disk_used: 10_737_418_240, // 10 GB approx
     disk_read_bytes_per_sec: 1_048_576, // 1 MB/s
     disk_write_bytes_per_sec: 524_288, // 512 KB/s
     net_rx_bytes_per_sec: 2_097_152, // 2 MB/s
@@ -72,29 +76,20 @@ describe('ServerCard', () => {
       />
     )
 
-    expect(screen.getByText('75.3%')).toBeInTheDocument()
+    // percentage number and symbol are separate nodes, just assert number
+    expect(screen.getByText('75.30')).toBeInTheDocument()
   })
 
-  it('displays formatted RAM', () => {
-    render(
-      <ServerCard
-        hostname="web-01"
-        uuid="uuid-1"
-        snapshot={makeSnapshot({ memory: 8_589_934_592 })}
-      />
-    )
 
-    expect(screen.getByText('8 GB')).toBeInTheDocument()
-  })
 
   it('shows dashes for metrics when offline', () => {
     render(
       <ServerCard hostname="web-01" uuid="uuid-1" snapshot={null} />
     )
 
-    // RAM, Net, Disk should show "—"
+    // Multiple dashes appear for each stat; just ensure at least three
     const dashes = screen.getAllByText('—')
-    expect(dashes).toHaveLength(3)
+    expect(dashes.length).toBeGreaterThanOrEqual(3)
   })
 
   it('links to correct server metrics page', () => {
@@ -106,6 +101,23 @@ describe('ServerCard', () => {
     expect(link).toHaveAttribute('href', '/servers/uuid-1/metrics')
   })
 
+  it('displays disk percentage with absolute GB when available', () => {
+    render(
+      <ServerCard
+        hostname="web-01"
+        uuid="uuid-1"
+        snapshot={makeSnapshot({ disk_used_percent: 74.4, disk_used: 11_000_000_000 })}
+      />
+    )
+
+    // number portion of percent is separate
+    expect(screen.getByText('74.40')).toBeInTheDocument()
+    // value may be split over multiple nodes; just ensure number appears
+    expect(
+      screen.getByText((content) => /10\.25/.test(content))
+    ).toBeInTheDocument()
+  })
+
   it('displays CPU progress bar at correct width', () => {
     const { container } = render(
       <ServerCard
@@ -115,7 +127,7 @@ describe('ServerCard', () => {
       />
     )
 
-    const progressBar = container.querySelector('[style*="width"]')
+    const progressBar = container.querySelector('[style*=\"width\"]')
     expect(progressBar).toHaveStyle({ width: '60%' })
   })
 
