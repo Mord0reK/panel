@@ -233,7 +233,7 @@ function buildOption(
             : Number.NEGATIVE_INFINITY
 
         const projectTotals = new Map<string, { cpu: number; ram: number; netRx: number; netTx: number }>()
-        const containerDetails: { name: string; project: string; value: number }[] = []
+        const containerDetails: { name: string; project: string; entryId: string; rx?: number; tx?: number; value?: number }[] = []
 
         for (const item of list) {
           if (typeof item.value !== 'number' || !isFinite(item.value)) continue
@@ -259,14 +259,39 @@ function buildOption(
           else if (item.seriesName?.endsWith('↓')) total.netRx += item.value
           else total.netTx += item.value
 
-          containerDetails.push({
-            name: item.seriesName ?? entryId.slice(0, 12),
-            project,
-            value: item.value,
-          })
+          // Dla sieci, łącz rx i tx dla tego samego kontenera
+          if (isNet) {
+            const isRx = item.seriesName?.endsWith('↓')
+            const cleanName = item.seriesName?.replace(/\s+[↓↑]/, '') ?? entryId.slice(0, 12)
+            const existing = containerDetails.find(c => c.entryId === entryId && c.name === cleanName)
+            
+            if (existing) {
+              if (isRx) existing.rx = item.value
+              else existing.tx = item.value
+            } else {
+              containerDetails.push({
+                name: cleanName,
+                project,
+                entryId,
+                rx: isRx ? item.value : undefined,
+                tx: isRx ? undefined : item.value,
+              })
+            }
+          } else {
+            containerDetails.push({
+              name: item.seriesName ?? entryId.slice(0, 12),
+              project,
+              entryId,
+              value: item.value,
+            })
+          }
         }
 
-        containerDetails.sort((a, b) => b.value - a.value)
+        containerDetails.sort((a, b) => {
+          const aVal = a.value ?? (a.rx ?? 0) + (a.tx ?? 0)
+          const bVal = b.value ?? (b.rx ?? 0) + (b.tx ?? 0)
+          return bVal - aVal
+        })
         const sortedProjects = Array.from(projectTotals.keys()).sort()
 
         let html = `<div style="margin-bottom:6px;color:#a1a1aa">${list[0].axisValue}</div>`
@@ -274,6 +299,7 @@ function buildOption(
         for (const project of sortedProjects) {
           const total = projectTotals.get(project)!
           const containersInProject = containerDetails.filter(c => c.project === project)
+          const isSingleContainer = containersInProject.length === 1
 
           const projectLabel = project || 'Standalone'
           let projectTotal = ''
@@ -281,12 +307,27 @@ function buildOption(
           else if (!isNet) projectTotal = tooltipFmt(total.ram)
           else projectTotal = `${tooltipFmt(total.netRx)} ↓ / ${tooltipFmt(total.netTx)} ↑`
 
-          html += `<div style="margin-top:6px;padding-bottom:2px;border-bottom:1px solid #3f3f46">
-            <span style="color:#e4e4e7;font-weight:600">${projectLabel}</span>: <b>${projectTotal}</b>
-          </div>`
+          // Jeśli jest tylko jeden kontener w projekcie, pokaż go bez duplikacji
+          if (isSingleContainer) {
+            const c = containersInProject[0]
+            const containerLabel = isNet && c.rx !== undefined && c.tx !== undefined 
+              ? `${c.name}: <b>${tooltipFmt(c.rx)} ↓ / ${tooltipFmt(c.tx)} ↑</b>`
+              : `${c.name}: <b>${tooltipFmt(c.value ?? 0)}</b>`
+            html += `<div style="margin-top:6px;color:#e4e4e7">
+              ${containerLabel}
+            </div>`
+          } else {
+            // Jeśli więcej kontenerów, pokaż grupę i szczegóły
+            html += `<div style="margin-top:6px;padding-bottom:2px;border-bottom:1px solid #3f3f46">
+              <span style="color:#e4e4e7;font-weight:600">${projectLabel}</span>: <b>${projectTotal}</b>
+            </div>`
 
-          for (const c of containersInProject) {
-            html += `<div style="margin-left:8px;color:#a1a1aa">${c.name}: <b>${tooltipFmt(c.value)}</b></div>`
+            for (const c of containersInProject) {
+              const containerLabel = isNet && c.rx !== undefined && c.tx !== undefined
+                ? `${c.name}: <b>${tooltipFmt(c.rx)} ↓ / ${tooltipFmt(c.tx)} ↑</b>`
+                : `${c.name}: <b>${tooltipFmt(c.value ?? 0)}</b>`
+              html += `<div style="margin-left:8px;color:#a1a1aa">${containerLabel}</div>`
+            }
           }
         }
 
