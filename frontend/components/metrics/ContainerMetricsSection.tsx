@@ -67,6 +67,7 @@ type UnifiedPoint = LiveServerContainer | RawContainerMetricPoint | AggregatedCo
 interface ContainerEntry {
   id: string
   name: string
+  project: string
   color: string
   points: UnifiedPoint[]
 }
@@ -208,6 +209,11 @@ function buildOption(
     }
   }
 
+  const entryById = new Map<string, ContainerEntry>()
+  for (const entry of entries) {
+    entryById.set(entry.id, entry)
+  }
+
   return {
     backgroundColor: 'transparent',
     animation: false,
@@ -218,7 +224,7 @@ function buildOption(
       borderColor: '#27272a',
       textStyle: { color: '#e4e4e7', fontSize: 12 },
       formatter: (params: unknown) => {
-        const list = params as { seriesName: string; value: unknown; axisValue: string }[]
+        const list = params as { seriesName: string; value: unknown; axisValue: string; seriesId: string }[]
         if (!Array.isArray(list) || list.length === 0) return ''
 
         const getValue = (value: unknown): number =>
@@ -226,12 +232,64 @@ function buildOption(
             ? value
             : Number.NEGATIVE_INFINITY
 
-        list.sort((a, b) => getValue(b.value) - getValue(a.value))
-        let html = `<div style="margin-bottom:4px;color:#a1a1aa">${list[0].axisValue}</div>`
+        const projectTotals = new Map<string, { cpu: number; ram: number; netRx: number; netTx: number }>()
+        const containerDetails: { name: string; project: string; value: number }[] = []
+
         for (const item of list) {
           if (typeof item.value !== 'number' || !isFinite(item.value)) continue
-          html += `<div>${item.seriesName}: <b>${tooltipFmt(item.value)}</b></div>`
+
+          const entryId = item.seriesId?.split(':')[0] ?? ''
+          const entry = entryById.get(entryId)
+          const project = entry?.project || 'Standalone'
+
+          let valueForTotal = 0
+          if (isCpu) valueForTotal = item.value
+          else if (!isNet) valueForTotal = item.value
+          else {
+            const isRx = item.seriesName?.endsWith('↓')
+            valueForTotal = item.value
+          }
+
+          if (!projectTotals.has(project)) {
+            projectTotals.set(project, { cpu: 0, ram: 0, netRx: 0, netTx: 0 })
+          }
+          const total = projectTotals.get(project)!
+          if (isCpu) total.cpu += item.value
+          else if (!isNet) total.ram += item.value
+          else if (item.seriesName?.endsWith('↓')) total.netRx += item.value
+          else total.netTx += item.value
+
+          containerDetails.push({
+            name: item.seriesName ?? entryId.slice(0, 12),
+            project,
+            value: item.value,
+          })
         }
+
+        containerDetails.sort((a, b) => b.value - a.value)
+        const sortedProjects = Array.from(projectTotals.keys()).sort()
+
+        let html = `<div style="margin-bottom:6px;color:#a1a1aa">${list[0].axisValue}</div>`
+
+        for (const project of sortedProjects) {
+          const total = projectTotals.get(project)!
+          const containersInProject = containerDetails.filter(c => c.project === project)
+
+          const projectLabel = project || 'Standalone'
+          let projectTotal = ''
+          if (isCpu) projectTotal = tooltipFmt(total.cpu)
+          else if (!isNet) projectTotal = tooltipFmt(total.ram)
+          else projectTotal = `${tooltipFmt(total.netRx)} ↓ / ${tooltipFmt(total.netTx)} ↑`
+
+          html += `<div style="margin-top:6px;padding-bottom:2px;border-bottom:1px solid #3f3f46">
+            <span style="color:#e4e4e7;font-weight:600">${projectLabel}</span>: <b>${projectTotal}</b>
+          </div>`
+
+          for (const c of containersInProject) {
+            html += `<div style="margin-left:8px;color:#a1a1aa">${c.name}: <b>${tooltipFmt(c.value)}</b></div>`
+          }
+        }
+
         return html
       },
     },
@@ -324,9 +382,11 @@ export function ContainerMetricsSection({
     if (isLive) {
       return Array.from(containerPoints.entries()).map(([id, pts], idx) => {
         const sliced = pts.slice(-60)
+        const containerInfo = infoByID.get(id)
         return {
           id,
-          name: infoByID.get(id)?.name ?? id.slice(0, 12),
+          name: containerInfo?.name ?? id.slice(0, 12),
+          project: containerInfo?.project ?? '',
           color: CONTAINER_COLORS[idx % CONTAINER_COLORS.length],
           points: sliced,
         }
@@ -336,6 +396,7 @@ export function ContainerMetricsSection({
     return historyContainers.map((c, idx) => ({
       id: c.container_id,
       name: c.name || c.container_id.slice(0, 12),
+      project: c.project ?? '',
       color: CONTAINER_COLORS[idx % CONTAINER_COLORS.length],
       points: c.points,
     }))

@@ -239,6 +239,7 @@ export interface LiveServerContainerRaw {
   State: string
   Health: string
   Status: string
+  Project: string
 }
 
 export interface LiveServerEvent {
@@ -276,6 +277,7 @@ export interface LiveServerContainer {
   state: string
   health: string
   status: string
+  project: string
 }
 
 // =============================================================================
@@ -344,5 +346,6 @@ export function normalizeLiveContainer(
     state: raw.State ?? '',
     health: raw.Health ?? '',
     status: raw.Status ?? '',
+    project: raw.Project ?? '',
   }
 }

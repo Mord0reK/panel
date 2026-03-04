@@ -98,6 +98,7 @@ export function useServerMetrics(
                 state: '',
                 health: '',
                 status: '',
+                project: c.project ?? '',
               }),
             )
             buf.set(

@@ -224,16 +224,18 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 			// State/health/status change rarely, so we don't need to query DB every SSE tick.
 			dbContainers, _ := h.containerDBCache.get(h.db, uuid)
 			type containerDBInfo struct {
-				State  string
-				Health string
-				Status string
+				State   string
+				Health  string
+				Status  string
+				Project string
 			}
 			infoByID := make(map[string]containerDBInfo, len(dbContainers))
 			for _, c := range dbContainers {
 				infoByID[c.ContainerID] = containerDBInfo{
-					State:  c.State,
-					Health: c.Health,
-					Status: c.Status,
+					State:   c.State,
+					Health:  c.Health,
+					Status:  c.Status,
+					Project: c.Project,
 				}
 			}
 
@@ -250,6 +252,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 				State       string  `json:"State"`
 				Health      string  `json:"Health"`
 				Status      string  `json:"Status"`
+				Project     string  `json:"Project"`
 			}
 
 			containerSlice := make([]containerLive, 0, len(containersMap))
@@ -271,6 +274,7 @@ func (h *SSEHandler) HandleLiveServer(w http.ResponseWriter, r *http.Request) {
 					State:       info.State,
 					Health:      info.Health,
 					Status:      info.Status,
+					Project:     info.Project,
 				})
 			}
 

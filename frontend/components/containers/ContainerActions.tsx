@@ -107,19 +107,19 @@ export function ContainerActions({ uuid, containerId, containerName, onDeleted, 
         return
       }
 
-      const results = updateData.results || []
-      const result = results[0]
+      const results = updateData.result || []
+      const containerResult = results[0]
 
-      if (result && result.success) {
+      if (containerResult && containerResult.success) {
         toast.dismiss(loadingToast)
         toast.success('Kontener zaktualizowany', {
-          description: result.message || 'Kontener został pomyślnie zaktualizowany'
+          description: containerResult.message || 'Kontener został pomyślnie zaktualizowany'
         })
         onAction?.()
       } else {
         toast.dismiss(loadingToast)
         toast.error('Błąd aktualizacji', {
-          description: result?.message || 'Nie udało się zaktualizować kontenera'
+          description: containerResult?.message || 'Nie udało się zaktualizować kontenera'
         })
       }
     } catch (err) {
