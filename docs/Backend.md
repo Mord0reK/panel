@@ -20,7 +20,8 @@ Backend systemu monitorowania napisany w Go. Pełni rolę serwera WebSocket dla 
 | Technologia | Wersja | Rola |
 |-------------|--------|------|
 | Go | 1.24+ | Język backendu |
-| SQLite (CGO) | mattn/go-sqlite3 v1.14.34 | Baza danych |
+| SQLite (pure Go) | modernc.org/sqlite v1.46.1 | Baza danych |
+| goose | github.com/pressly/goose/v3 v3.26.0 | Migracje SQL (embedded) |
 | gorilla/mux | v1.8.1 | Router HTTP |
 | gorilla/websocket | v1.5.3 | WebSocket (agenci) |
 | golang-jwt/jwt | v5.3.1 | Autentykacja |
@@ -155,9 +156,9 @@ Kaskadowa redukcja rozdzielczości danych. Działa niezależnie od BulkInsertera
 
 ## Baza danych
 
-SQLite z trybem **WAL** (`_journal_mode=WAL`), `_synchronous=NORMAL`, `_busy_timeout=5000`, `_foreign_keys=1`. Pool ograniczony do **1 połączenia** (SQLite nie obsługuje concurrent writers).
+SQLite działa na driverze `modernc.org/sqlite` (bez CGO) z trybem **WAL** (`_journal_mode=WAL`), `_synchronous=NORMAL`, `_busy_timeout=5000`. Pool jest ograniczony do **1 połączenia** (`MaxOpenConns(1)`), a `PRAGMA foreign_keys = ON` jest ustawiane jawnie po `sql.Open`.
 
-Migracje wykonywane automatycznie przy starcie z katalogu `./migrations/` (pliki `.sql` w kolejności alfabetycznej). Każda migracja jest wykonywana przez `execWithRetry` — exponential backoff, maks. 5 prób, obsługa `"database is locked"`. Migracje używają `CREATE TABLE IF NOT EXISTS`, więc są idempotentne (brak tabeli śledzenia wersji).
+Migracje są wykonywane przez `goose` z embedded FS (`backend/migrations/*.sql`) przez `database.RunMigrations(db)`. Goose utrzymuje stan wersji w tabeli `goose_db_version`, więc uruchamiane są tylko pending migracje.
 
 ### Tabele
 
@@ -174,17 +175,23 @@ Migracje wykonywane automatycznie przy starcie z katalogu `./migrations/` (pliki
 
 | Kolumna | Typ | Opis |
 |---------|-----|------|
-| `uuid` | TEXT PK | SHA1 z host_id agenta |
+| `uuid` | TEXT PK | SHA256 z host_id agenta |
 | `hostname` | TEXT | Nazwa hosta |
 | `approved` | BOOLEAN | Czy serwer zatwierdzony (default: 0) |
+| `display_name` | TEXT | Opcjonalna nazwa wyświetlana w UI |
+| `icon` | TEXT | Opcjonalna ikona serwera |
+| `status` | TEXT | Status administracyjny (`active` / `rejected`) |
 | `cpu_model` | TEXT | Model CPU |
 | `cpu_cores` | INTEGER | Liczba rdzeni logicznych |
+| `cpu_threads` | INTEGER | Liczba wątków CPU |
 | `memory_total` | INTEGER | RAM (bajty) |
 | `platform` | TEXT | OS + wersja |
 | `kernel` | TEXT | Wersja kernela |
 | `architecture` | TEXT | Architektura |
 | `last_seen` | DATETIME | Ostatni kontakt |
 | `created_at` | DATETIME | Pierwsze pojawienie się |
+
+Nowe rekordy są domyślnie auto-approve w logice `Upsert` (`approved=true`, `status='active'`), mimo że schema ma `approved DEFAULT 0`.
 
 #### `containers`
 
@@ -197,6 +204,9 @@ Migracje wykonywane automatycznie przy starcie z katalogu `./migrations/` (pliki
 | `image` | TEXT | Obraz Docker |
 | `project` | TEXT | Projekt compose |
 | `service` | TEXT | Usługa compose |
+| `state` | TEXT | Aktualny stan kontenera |
+| `health` | TEXT | Docker healthcheck |
+| `status` | TEXT | Status raportowany przez Docker API |
 | `first_seen` | DATETIME | Pierwsze pojawienie się |
 | `last_seen` | DATETIME | Ostatni kontakt |
 
@@ -307,8 +317,8 @@ Serwer startuje na porcie `8080`. Pierwsze uruchomienie wymaga konfiguracji prze
 docker compose up -d --build
 ```
 
-Build dwuetapowy: `golang:1.24-alpine` (CGO + gcc) → `alpine:latest`. CGO wymagane przez `go-sqlite3`.
+Build dwuetapowy: `golang:1.24-alpine` → `alpine:latest`.
 
 ### Wymagania buildowe
 
-CGO musi być włączone (`CGO_ENABLED=1`). W Alpine wymaga pakietów `gcc` i `musl-dev`.
+CGO nie jest wymagane (driver SQLite jest pure Go).

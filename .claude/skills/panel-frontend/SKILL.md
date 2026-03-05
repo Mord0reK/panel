@@ -86,7 +86,7 @@ host.mem_used          // ✅
 
 ### Reguła obowiązkowa
 
-Każdy nowy komponent lub hook pobierający dane z `/live/servers/[uuid]` **MUSI**:
+Każdy nowy komponent lub hook pobierający dane z `/api/metrics/live/servers/[uuid]` **MUSI**:
 
 1. Importować funkcje z `@/types`:
    ```typescript
@@ -185,7 +185,7 @@ pnpm exec playwright test        # E2E (gdy zmieniono UI / formularze)
 
 ## Kluczowe wzorce kodu
 
-### Dodawanie nowego komponentu z SSE `/live/servers/[uuid]`
+### Dodawanie nowego komponentu z SSE `/api/metrics/live/servers/[uuid]`
 
 ```typescript
 'use client'

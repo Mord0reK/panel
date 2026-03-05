@@ -3,8 +3,11 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { LayoutDashboardIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { ServerNavList } from '@/components/sidebar/ServerNavList'
+import type { ServiceDefinition } from '@/types'
+import { api } from '@/lib/api'
 import {
   Sidebar as SidebarPrimitive,
   SidebarContent,
@@ -23,6 +26,16 @@ import {
 export function AppSidebar() {
   const router = useRouter()
   const { setOpenMobile } = useSidebar()
+  const [enabledServices, setEnabledServices] = useState<ServiceDefinition[]>(
+    []
+  )
+
+  useEffect(() => {
+    api
+      .getServices()
+      .then((services) => setEnabledServices(services.filter((s) => s.enabled)))
+      .catch(() => setEnabledServices([]))
+  }, [])
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -66,6 +79,30 @@ export function AppSidebar() {
             <ServerNavList />
           </SidebarGroupContent>
           <SidebarGroupLabel>Usługi</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {enabledServices.length > 0 ? (
+                enabledServices.map((service) => (
+                  <SidebarMenuItem key={service.key}>
+                    <SidebarMenuButton asChild tooltip={service.display_name}>
+                      <Link
+                        href={`/services/${service.key}`}
+                        onClick={handleLinkClick}
+                      >
+                        <span>{service.display_name}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))
+              ) : (
+                <SidebarMenuItem>
+                  <div className="px-2 py-1.5 text-xs text-zinc-500">
+                    Brak włączonych usług
+                  </div>
+                </SidebarMenuItem>
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
 

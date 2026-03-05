@@ -102,6 +102,7 @@ export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
               <button
                 key={s}
                 onClick={() => setStat(s)}
+                data-testid={`metrics-stat-${s}`}
                 className={[
                   'px-3 py-1 text-xs font-medium rounded transition-colors uppercase tracking-wide',
                   stat === s
@@ -116,7 +117,7 @@ export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
         )}
 
         {isLive && (
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="flex items-center gap-2 text-xs text-zinc-500" data-testid="metrics-live-status">
             {connected ? (
               <>
                 <span className="inline-block size-2 rounded-full bg-red-500 animate-pulse" />

@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 
+test.use({ storageState: { cookies: [], origins: [] } })
+
 // Middleware blokuje niezalogowanych
 test('niezalogowany użytkownik → redirect do /login', async ({ page }) => {
   await page.goto('/dashboard')
@@ -61,13 +63,17 @@ test('puste pola nie przechodzą walidacji HTML5', async ({ page }) => {
 })
 
 // Formularz setup — walidacja minimalnej długości
-test('setup: hasło < 8 znaków → błąd walidacji', async ({ page }) => {
-  await page.goto('/setup')
-
-  if (page.url().includes('/login')) {
-    test.skip()
-    return
+test('setup: hasło < 8 znaków → błąd walidacji', async ({ page, request }) => {
+  const statusRes = await request.get('/api/auth/status')
+  if (statusRes.ok()) {
+    const status = await statusRes.json() as { setup_required?: boolean }
+    if (!status.setup_required) {
+      test.skip()
+      return
+    }
   }
+
+  await page.goto('/setup')
 
   await page.getByTestId('setup-username').fill('admin')
   await page.getByTestId('setup-password').fill('short')

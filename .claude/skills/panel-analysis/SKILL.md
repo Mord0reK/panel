@@ -62,7 +62,7 @@ types/index.ts        — WSZYSTKIE typy TS (Server, Container, MetricPoint, SSE
 - `backend/internal/models/*.go` → `frontend/types/index.ts` — zmiana struktury modelu = zmiana typów TS
 - `backend/internal/api/sse.go` → `frontend/hooks/useSSE.ts` / `useLiveAll.ts` — format SSE eventów
 - `backend/internal/api/metrics.go` → `frontend/lib/api.ts` — endpointy REST
-- **UWAGA:** SSE `/live/servers/[uuid]` zwraca PascalCase (Go struct bezpośrednio), `/live/all` — snake_case. Normalizacja w `frontend/types/index.ts`: `normalizeLiveHost()`, `normalizeLiveContainer()`
+- **UWAGA:** SSE `/api/metrics/live/servers/[uuid]` zwraca PascalCase (Go struct bezpośrednio), `/api/metrics/live/all` — snake_case. Normalizacja w `frontend/types/index.ts`: `normalizeLiveHost()`, `normalizeLiveContainer()`
 
 ---
 

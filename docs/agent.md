@@ -151,12 +151,12 @@ Agent                          Backend
   │                               │
   │──── TCP Connect ─────────────►│
   │──── auth (JSON) ─────────────►│  rejestracja/upsert w DB
-  │◄─── auth_response ────────────│  approved: true/false
+  │◄─── auth_response ────────────│  zwykle approved: true (auto-approve)
   │                               │
   │  [jeśli approved: false]      │
-  │◄─── auth_response ────────────│  oczekiwanie na ręczne zatwierdzenie
-  │     (approved: true)          │  przez użytkownika w panelu
-  │                               │
+  │──── close + wait 60s ────────►│  serwer odrzucony, ponowna próba później
+  │──── TCP Connect ─────────────►│
+  │──── auth ────────────────────►│
   │──── metrics (co 1s) ─────────►│
   │──── metrics (co 1s) ─────────►│
   │         ...                   │
@@ -229,7 +229,9 @@ Wysyłana natychmiast po połączeniu. Zawiera UUID oraz statyczne informacje o 
 }
 ```
 
-Jeśli `approved: false` — agent czeka na kolejną wiadomość `auth_response` z `approved: true` (ręczne zatwierdzenie w panelu). Metryki nie są wysyłane do momentu zatwierdzenia.
+Jeśli `approved: true` — agent od razu uruchamia pętlę metryk.
+
+Jeśli `approved: false` — agent zamyka połączenie i ponawia próbę po ~60s (nie czeka pasywnie na drugi `auth_response` w tym samym połączeniu).
 
 ---
 

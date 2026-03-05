@@ -1,11 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { PencilIcon, RefreshCwIcon, ServerIcon, Trash2Icon, XCircleIcon } from 'lucide-react'
+import {
+  PencilIcon,
+  RefreshCwIcon,
+  ServerIcon,
+  Trash2Icon,
+  XCircleIcon,
+} from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SettingsNav } from '@/components/settings/SettingsNav'
 import { ServerIconDisplay } from '@/components/servers/ServerIconDisplay'
 import { EditServerModal } from '@/components/servers/EditServerModal'
 import { api } from '@/lib/api'
@@ -32,7 +39,13 @@ interface ServerRowProps {
   onDelete: (server: Server) => void
 }
 
-function ServerRow({ server, onEdit, onReject, onRestore, onDelete }: ServerRowProps) {
+function ServerRow({
+  server,
+  onEdit,
+  onReject,
+  onRestore,
+  onDelete,
+}: ServerRowProps) {
   const displayName = server.display_name || server.hostname
 
   return (
@@ -151,19 +164,25 @@ export default function SettingsServersPage() {
   async function handleReject(server: Server) {
     await api.patchServer(server.uuid, { status: 'rejected' })
     setServers((prev) =>
-      prev.map((s) => (s.uuid === server.uuid ? { ...s, status: 'rejected' } : s)),
+      prev.map((s) =>
+        s.uuid === server.uuid ? { ...s, status: 'rejected' } : s
+      )
     )
   }
 
   async function handleRestore(server: Server) {
     await api.patchServer(server.uuid, { status: 'active' })
     setServers((prev) =>
-      prev.map((s) => (s.uuid === server.uuid ? { ...s, status: 'active' } : s)),
+      prev.map((s) => (s.uuid === server.uuid ? { ...s, status: 'active' } : s))
     )
   }
 
   async function handleDelete(server: Server) {
-    if (!confirm(`Na pewno usunąć serwer "${server.display_name || server.hostname}"? Tej akcji nie można cofnąć.`)) {
+    if (
+      !confirm(
+        `Na pewno usunąć serwer "${server.display_name || server.hostname}"? Tej akcji nie można cofnąć.`
+      )
+    ) {
       return
     }
     await api.deleteServer(server.uuid)
@@ -171,10 +190,14 @@ export default function SettingsServersPage() {
   }
 
   function handleSaved(updated: Server) {
-    setServers((prev) => prev.map((s) => (s.uuid === updated.uuid ? updated : s)))
+    setServers((prev) =>
+      prev.map((s) => (s.uuid === updated.uuid ? updated : s))
+    )
   }
 
-  const activeServers = servers.filter((s) => (s.status ?? 'active') !== 'rejected')
+  const activeServers = servers.filter(
+    (s) => (s.status ?? 'active') !== 'rejected'
+  )
   const rejectedServers = servers.filter((s) => s.status === 'rejected')
 
   return (
@@ -185,6 +208,8 @@ export default function SettingsServersPage() {
           Zarządzaj nazwami, ikonami i statusami podłączonych serwerów.
         </p>
       </div>
+
+      <SettingsNav />
 
       {loading ? (
         <div className="text-sm text-muted-foreground">Ładowanie…</div>
@@ -261,13 +286,7 @@ export default function SettingsServersPage() {
   )
 }
 
-function EmptyState({
-  icon,
-  text,
-}: {
-  icon: React.ReactNode
-  text: string
-}) {
+function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-12 text-center">
       {icon}

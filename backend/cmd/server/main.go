@@ -53,6 +53,10 @@ func main() {
 	commandsHandler := api.NewCommandsHandler(agentHub)
 	metricsHandler := api.NewMetricsHandler(db, bufferManager)
 	sseHandler := api.NewSSEHandler(db, bufferManager, cfg.CORSOrigin)
+	servicesHandler, err := api.NewServicesHandler(db, cfg.JWTSecret)
+	if err != nil {
+		log.Fatalf("Failed to initialize services handler: %v", err)
+	}
 
 	// 6. Router
 	r := mux.NewRouter()
@@ -110,6 +114,10 @@ func main() {
 
 	apiRouter.HandleFunc("/metrics/live/all", sseHandler.HandleLiveAll).Methods("GET")
 	apiRouter.HandleFunc("/metrics/live/servers/{uuid}", sseHandler.HandleLiveServer).Methods("GET")
+	apiRouter.HandleFunc("/services", servicesHandler.HandleList).Methods("GET")
+	apiRouter.HandleFunc("/services/{service}/config", servicesHandler.HandleGetConfig).Methods("GET")
+	apiRouter.HandleFunc("/services/{service}/config", servicesHandler.HandleConfigUpsert).Methods("PUT")
+	apiRouter.HandleFunc("/services/{service}/test", servicesHandler.HandleTestConnection).Methods("POST")
 
 	// WebSocket (Agent)
 	r.HandleFunc("/ws/agent", wsHandler.HandleAgent)

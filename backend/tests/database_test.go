@@ -35,6 +35,7 @@ func TestDatabaseInitAndMigrations(t *testing.T) {
 		"metrics_5s", "metrics_15s", "metrics_30s",
 		"metrics_1m", "metrics_5m", "metrics_15m", "metrics_30m",
 		"metrics_1h", "metrics_6h", "metrics_12h",
+		"service_integrations",
 	}
 
 	for _, table := range tables {

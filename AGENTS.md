@@ -1,99 +1,64 @@
-# STOP! ZANIM COKOLWIEK ZROBISZ:
-1. SPRAWDŹ SKILLE: Użyj `skill list`.
-2. ZAŁADUJ SKILL: Jeśli pracujesz nad frontendem, MUSISZ użyć `skill load panel-frontend`.
-3. ZAKAZ ZGADYWANIA: Jeśli nie znasz struktury, odczytaj plik skilla, a nie greppuj całego dysku.
+# SYSTEM PROMPT: Karta Projektu i Protokoły Agenta
 
-# Panel — Server Dashboard + Services Monitor
+## 1. INICJALIZACJA I EKSPLORACJA (Zawsze przed startem)
+1. **Zarządzanie skillami:** Użyj `skill list` (TYLKO OPENCODE) lub dedykowanego narzędzia środowiska (np. w GitHub Copilot), aby sprawdzić dostępne umiejętności.
+2. **Załaduj skille:** Jeśli zadanie dotyczy frontendu, MUSISZ załadować `panel-frontend` (używając `skill load` lub odpowiednika w Twoim narzędziu).
+3. **Eksploracja:** Używaj Desktop Commander do czytania struktury i plików. Zakaz zgadywania i ślepego przeszukiwania dysku.
 
-## Opis projektu
+## 2. KONTEKST PROJEKTU: Panel
+Zintegrowany system monitoringu serwerów:
+- **Agent (Go):** Klient WebSocket, zbiera metryki systemowe.
+- **Backend (Go):** Serwer WebSocket, baza SQLite, agregacja danych.
+- **Frontend (pnpm):** UI Dark Mode. Infrastruktura: Docker + Cloudflare tunnel.
+- **Subagenty:** Przy pracach cross-komponentowych dziel zadania na subagenty (agent/backend/frontend).
 
-Ten projekt to zintegrowany panel do monitorowania serwerów i usług zewnętrznych. Składa się z trzech komponentów:
+## 3. OBOWIĄZKOWE NARZĘDZIA (MCP First)
+Twoja wewnętrzna wiedza jest traktowana jako przestarzała. Używaj:
+- **Context7:** Dokumentacja bibliotek/API/frameworków – zawsze przed kodowaniem.
+- **Playwright:** Weryfikacja UI po każdej zmianie we frontendzie.
+- **Desktop Commander:** Weryfikacja istniejącego kodu przed edycją.
 
-| Komponent | Język | Rola |
-|-----------|-------|------|
-| **Agent** | Go | Instalowany na każdym monitorowanym serwerze. Zbiera statystyki systemowe i wysyła je przez WebSocket do backendu (agent = klient WS) |
-| **Backend** | Go | Serwer WebSocket przyjmujący dane od agentów. Zapisuje metryki w SQLite, agreguje je (redukcja punktów danych). W przyszłości integracje z zewnętrznymi usługami |
+## 4. PROTOKÓŁ KOMUNIKACJI: TOTALNA BLOKADA TEKSTU
 
-## Stack techniczny
+**KRYTYCZNA ZASADA (Zero-Tolerance):** Masz CAŁKOWITY ZAKAZ wypisywania sekcji "Zrobione", "Weryfikacja" lub jakichkolwiek pytań końcowych bezpośrednio w oknie czatu (Markdown). 
 
-- **Agent:** Go, WebSocket (klient)
-- **Backend:** Go, WebSocket (serwer), SQLite
-- **Package manager (frontend):** pnpm
-- **UI:** zawsze Dark Mode
-- **Infrastruktura:** Docker, tunel Cloudflare (tylko frontend publiczny)
+### TWOJA JEDYNA DROGA WYJŚCIA:
+Każdy raport z pracy i każde pytanie o akceptację MUSI być przesłane jako argument `message` w narzędziu `AskUserQuestion`. 
 
-## Architektura komunikacji
+**Jeśli skończyłeś pracę:**
+1. Twoja odpowiedź tekstowa w czacie musi być PUSTA (0 znaków).
+2. Natychmiast wywołaj `AskUserQuestion`.
+3. W polu `message` wpisz:
+   """
+   # RAPORT KOŃCOWY
+   ## Zrobione:
+   - [lista zmian]
+   ## Weryfikacja:
+   - [wyniki testów/Playwright]
+   
+   CZY AKCEPTUJESZ WYNIK? (Jeśli nie, napisz co poprawić).
+   """
 
-```
-Agent (Go, WS client)
-        │
-        ▼ WebSocket
-Backend (Go, WS server) ──► SQLite
+**BŁĄD KRYTYCZNY:** Jeśli w Twojej odpowiedzi widać sekcję "Zrobione" w Markdownie (tak jak na screenach użytkownika), oznacza to, że złamałeś protokół i zmarnowałeś request. Napraw to natychmiast używając narzędzia.
 
-## Obsługa MCP — zasada "MCP first, knowledge never"
+### A. Blokada Przed Implementacją (Oszczędność requestów)
+ZATRZYMAJ PRACĘ i wywołaj `AskUserQuestion`, jeśli:
+- Brakuje specyfikacji/danych (sekrety, porty, endpointy).
+- Zakres zadania jest sprzeczny z istniejącym kodem.
+- Decyzja architektoniczna jest nieodwracalna.
 
-**MCP to obowiązkowe narzędzia, nie opcja.** Własna wiedza AI jest zawsze przestarzała. MCP jest zawsze aktualne. Nie ma wyjątków.
+### B. Blokada Po Implementacji (Raportowanie)
+NIGDY nie wysyłaj raportu końcowego jako zwykłego tekstu. 
+**Prawidłowy przepływ:**
+1. Przygotuj listę "Zrobione" i "Weryfikacja".
+2. Całą tę treść przekaż jako parametr `message` w narzędziu `AskUserQuestion`.
+3. Na końcu raportu dodaj pytanie: "Czy akceptujesz wynik?".
 
-### Obowiązkowe triggery MCP
+## 5. DEFINICJA UKOŃCZENIA (Definition of Done)
+Zadanie jest "DONE" tylko, gdy wszystkie punkty zostaną odhaczone w tej kolejności:
+1. **Kod napisany** (implementacja gotowa).
+2. **Testy zaliczone:** `go test ./...` (backend/agent) lub `pnpm test` (frontend).
+3. **Weryfikacja wizualna:** Potwierdzona przez Playwright (dla frontendu).
+4. **Techniczne zamknięcie:** Wywołanie `AskUserQuestion` z pełnym raportem zmian i testów.
 
-| Sytuacja | Wymagane działanie |
-|----------|--------------------|
-| Jakakolwiek dokumentacja biblioteki / API / frameworka | **Context7 — zawsze, bez wyjątku** |
-| Napisałem coś we frontendzie | **Playwright — weryfikacja zanim powiesz że skończone** |
-
-**Zakaz zgadywania.** Jeśli nie masz pewności jak wygląda istniejący kod — sprawdź przez Desktop Commander. Jeśli potrzebujesz dokumentacji — użyj Context7. Nigdy nie pisz kodu który może kolidować z tym co już istnieje bez uprzedniego sprawdzenia.
-
-## Praca z wieloma subagentami
-
-Przy złożonych zadaniach (np. implementacja feature'a spanning agent + backend + frontend) **dziel pracę na subagenty**:
-- Jeden subagent na komponent (agent/backend/frontend)
-- Subagenty działają równolegle gdy zadania są niezależne
-- Synchronizuj wyniki przed finalizacją
-
-## KRYTYCZNE INSTRUKCJE ZACHOWANIA
-
-### AskUserQuestion — jedyny kanał komunikacji
-
-**Twardy zakaz: nigdy nie zadajesz pytań w treści wiadomości tekstowej.**
-
-Jedyną dozwoloną formą pytania do użytkownika jest narzędzie `AskUserQuestion`. Tekst w odpowiedzi służy wyłącznie do raportowania — nie do dialogu. Masz binarny wybór: albo użyj narzędzia `AskUserQuestion`, albo kontynuuj pracę. Nie ma trzeciej opcji "napiszę pytanie w tekście i poczekam".
-
-**`AskUserQuestion` jest dozwolone wyłącznie gdy:**
-- Decyzja architektoniczna jest nieodwracalna i nie ma dobrego domyślnego wyboru
-- Brakuje kredencjałów / sekretów których nie ma w repozytorium
-- Zadanie jest sprzeczne z istniejącym kodem i żaden default nie jest oczywisty
-
-**Wszystko inne** — użyj Desktop Commander, sprawdź repo, zaimplementuj, zaraportuj.
-
-### Definicja "zadanie skończone"
-
-Zadanie jest skończone dopiero gdy wszystkie poniższe punkty są spełnione:
-
-1. **Kod napisany** — implementacja gotowa
-2. **Testy przeszły** — `go test ./...` (backend/agent) lub `pnpm test` (frontend)
-3. **UI zweryfikowane przez Playwright** — jeśli zadanie dotyczy frontendu
-4. **Podsumowanie wysłane przez `AskUserQuestion`** — z pytaniem czy użytkownik akceptuje wynik
-
-Nie możesz uznać zadania za skończone po samym napisaniu kodu. Playwright i testy są obowiązkowym warunkiem ukończenia, nie opcją.
-
-### Zadawanie pytań zamiast kończenia pracy
-
-**Nigdy nie kończ implementacji gdy napotkasz niejednoznaczność lub brakuje Ci informacji.**
-
-Zamiast tego — sprawdź przez Desktop Commander / Chroma / Context7. Jeśli nadal nie wiesz — użyj `AskUserQuestion`. Dotyczy to sytuacji takich jak:
-- Brak specyfikacji dla danej funkcji
-- Niejednoznaczny zakres zadania
-- Wybór między kilkoma możliwymi podejściami
-- Brakujące dane konfiguracyjne (porty, endpointy, zmienne środowiskowe)
-
-**Dlaczego:** Przerwanie pracy i zadanie pytania = 0 premium requestów. Samodzielne "zgadywanie" i błędna implementacja = strata premium requestów na poprawki.
-
-### Testy na końcu implementacji
-
-Po każdej implementacji uruchom testy:
-- Backend/Agent (Go): `go test ./...`
-- Frontend: `pnpm test` lub weryfikacja przez Playwright MCP
-- Upewnij się że wszystkie testy przechodzą przed oddaniem pracy
-
-### Powtórzenie
-NIGDY, PRZENIGDY NIE PYTAJ SIĘ CZY COŚ ZAIMPLEMENTOWAĆ, UŻYJ NARZĘDZIA `AskUserQuestion` BY ZAPYTAĆ UŻYTKOWNIKA O AKCEPTACJĘ PRACY. NIE MA OPCJI "NAPISZĘ KOD I ZAPYTAJĘ POTEM". TO JEST BŁĄD KTÓRY PROWADZI DO STRATY PREMIUM REQUESTÓW NA POPRAWKI.
+**ZAKAZ:** Wysyłania raportu w Markdown i czekania na odpowiedź bez wywołania narzędzia.

@@ -68,16 +68,22 @@ Każdy Route Handler w `app/api/` odczytuje token z httpOnly cookie i przekazuje
 | `GET /api/auth/status` | `GET /api/auth/status` |
 | `GET /api/servers` | `GET /api/servers` |
 | `GET /api/servers/[uuid]` | `GET /api/servers/:uuid` |
+| `PATCH /api/servers/[uuid]` | `PATCH /api/servers/:uuid` |
 | `PUT /api/servers/[uuid]/approve` | `PUT /api/servers/:uuid/approve` |
 | `DELETE /api/servers/[uuid]` | `DELETE /api/servers/:uuid` |
 | `POST /api/servers/[uuid]/command` | `POST /api/servers/:uuid/command` |
 | `POST /api/servers/[uuid]/containers/[id]/command` | `POST /api/servers/:uuid/containers/:id/command` |
+| `POST /api/servers/[uuid]/containers/[id]/check-update` | `POST /api/servers/:uuid/containers/:id/check-update` |
+| `POST /api/servers/[uuid]/containers/[id]/update` | `POST /api/servers/:uuid/containers/:id/update` |
+| `DELETE /api/servers/[uuid]/containers/[id]` | `DELETE /api/servers/:uuid/containers/:id` |
+| `DELETE /api/servers/[uuid]/containers` | `DELETE /api/servers/:uuid/containers` |
 | `GET /api/metrics/history/servers/[uuid]` | `GET /api/metrics/history/servers/:uuid` |
 | `GET /api/metrics/history/servers/[uuid]/containers/[id]` | `GET /api/metrics/history/servers/:uuid/containers/:id` |
 | `GET /api/metrics/live/all` | `GET /api/metrics/live/all` |
 | `GET /api/metrics/live/servers/[uuid]` | `GET /api/metrics/live/servers/:uuid` |
+| `GET /api/icons` | lokalny endpoint Next.js (ikony z `/public/icons`) |
 
-> Endpointy SSE (`/live/*`) wymagają specjalnej obsługi w Route Handlerze — strumieniowanie response zamiast jednorazowego zwrotu.
+> Endpointy SSE (`/api/metrics/live/*`) wymagają specjalnej obsługi w Route Handlerze — strumieniowanie response zamiast jednorazowego zwrotu.
 
 ### Zmienna środowiskowa backendu
 
@@ -108,7 +114,7 @@ Każdy kolejny Route Handler odczytuje token z `cookies()` (Next.js server-side)
 - Sprawdza obecność cookie `token`
 - Brak tokenu → redirect na `/login`
 - Trasy publiczne bez ochrony: `/login`, `/setup`
-- Sprawdzenie ważności tokenu: wywołanie `GET /api/auth/status` lub lokalna weryfikacja podpisu JWT (do ustalenia przy implementacji)
+- Sprawdzenie ważności tokenu: wywołanie `GET /api/auth/status` (real-time w middleware/proxy)
 
 ### Flow autentykacji
 
@@ -298,7 +304,9 @@ Client Component. Inicjalizowany jednorazowo z tablicą punktów historycznych. 
 
 ### Hook `useSSE`
 
-Bazowy hook opakowujący `EventSource` (lub `fetch` z `ReadableStream` — wymagane gdy SSE wymaga nagłówka `Authorization`, co jest przypadkiem tego projektu bo cookie jest httpOnly).
+Bazowy hook opakowujący `EventSource`.
+
+Autoryzacja SSE jest realizowana server-side przez Route Handlery (`backendStream`), które przekazują token z httpOnly cookie do backendu i streamują odpowiedź do przeglądarki.
 
 Strategia reconnect: przy błędzie lub zamknięciu połączenia — exponential backoff (1s, 2s, 4s, max 30s).
 
@@ -364,7 +372,6 @@ Zmiana zakresu:
 | Zmienna | Gdzie używana | Opis |
 |---------|--------------|------|
 | `BACKEND_URL` | Server-side (Route Handlers) | URL backendu wewnątrz Dockera, np. `http://backend:8080` |
-| `JWT_COOKIE_SECRET` | Server-side (proxy) | Opcjonalnie do lokalnej weryfikacji tokenu bez round-tripu do backendu |
-| `NEXT_PUBLIC_APP_NAME` | Client-side | Nazwa wyświetlana w UI (opcjonalne) |
+| `NODE_ENV` | Server-side (auth routes) | Steruje flagą `secure` dla cookie (`true` w production) |
 
 `BACKEND_URL` **nigdy** nie jest prefiksowana `NEXT_PUBLIC_` — nie może trafić do przeglądarki.

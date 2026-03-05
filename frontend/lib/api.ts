@@ -5,6 +5,7 @@ import type {
   ContainerHistoryResponse,
   CustomIcon,
   MetricRange,
+  ServiceDefinition,
   Server,
   ServerDetailResponse,
   ServerHistoryResponse,
@@ -17,7 +18,7 @@ import type {
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
-    message: string,
+    message: string
   ) {
     super(message)
     this.name = 'ApiError'
@@ -61,6 +62,64 @@ export const api = {
   },
 
   // -------------------------------------------------------------------------
+  // Services
+  // -------------------------------------------------------------------------
+
+  getServices() {
+    return apiFetch<ServiceDefinition[]>('/api/services')
+  },
+
+  getServiceConfig(serviceKey: string) {
+    return apiFetch<{
+      service_key: string
+      enabled: boolean
+      base_url: string
+      username: string
+      password: string
+      token: string
+      has_token: boolean
+      has_password: boolean
+    }>(`/api/services/${serviceKey}/config`)
+  },
+
+  saveServiceConfig(
+    serviceKey: string,
+    body: {
+      enabled: boolean
+      base_url?: string
+      token?: string
+      username?: string
+      password?: string
+    }
+  ) {
+    return apiFetch<{ success?: boolean }>(
+      `/api/services/${serviceKey}/config`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }
+    )
+  },
+
+  testServiceConfig(
+    serviceKey: string,
+    body: {
+      enabled: boolean
+      base_url?: string
+      token?: string
+      username?: string
+      password?: string
+    }
+  ) {
+    return apiFetch<{ success?: boolean }>(`/api/services/${serviceKey}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  },
+
+  // -------------------------------------------------------------------------
   // Servers
   // -------------------------------------------------------------------------
 
@@ -78,7 +137,14 @@ export const api = {
     })
   },
 
-  patchServer(uuid: string, body: { display_name?: string; icon?: string; status?: 'active' | 'rejected' }) {
+  patchServer(
+    uuid: string,
+    body: {
+      display_name?: string
+      icon?: string
+      status?: 'active' | 'rejected'
+    }
+  ) {
     return apiFetch<Server>(`/api/servers/${uuid}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -111,7 +177,7 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
-      },
+      }
     )
   },
 
@@ -122,7 +188,7 @@ export const api = {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
-      },
+      }
     )
   },
 
@@ -133,7 +199,7 @@ export const api = {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ container_ids: containerIds, password }),
-      },
+      }
     )
   },
 
@@ -143,7 +209,7 @@ export const api = {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-      },
+      }
     )
   },
 
@@ -153,7 +219,7 @@ export const api = {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-      },
+      }
     )
   },
 
@@ -163,13 +229,13 @@ export const api = {
 
   getMetricsHistory(uuid: string, range: MetricRange) {
     return apiFetch<ServerHistoryResponse>(
-      `/api/metrics/history/servers/${uuid}?range=${range}`,
+      `/api/metrics/history/servers/${uuid}?range=${range}`
     )
   },
 
   getContainerHistory(uuid: string, containerId: string, range: MetricRange) {
     return apiFetch<ContainerHistoryResponse>(
-      `/api/metrics/history/servers/${uuid}/containers/${containerId}?range=${range}`,
+      `/api/metrics/history/servers/${uuid}/containers/${containerId}?range=${range}`
     )
   },
 }

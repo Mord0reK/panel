@@ -114,6 +114,8 @@ Sprawdza stan aplikacji i sesji. Nie wymaga tokenu — opcjonalnie przyjmuje nag
 
 Wszystkie endpointy wymagają tokenu JWT.
 
+Nowo podłączony agent jest auto-approve (`approved=true`, `status="active"`) podczas pierwszego `auth` po WebSocket. Endpoint `PUT /api/servers/:uuid/approve` pozostaje dostępny administracyjnie.
+
 ### `GET /api/servers`
 
 Lista wszystkich serwerów posortowana po hostname.
@@ -124,9 +126,14 @@ Lista wszystkich serwerów posortowana po hostname.
   {
     "uuid": "a3f2c1d4e5b6...",
     "hostname": "server1",
+    "display_name": "Serwer produkcyjny",
+    "icon": "server",
+    "status": "active",
     "approved": true,
+    "online": true,
     "cpu_model": "Intel Core i5-13600KF",
     "cpu_cores": 20,
+    "cpu_threads": 20,
     "memory_total": 32673112064,
     "platform": "Ubuntu 25.10",
     "kernel": "6.12.62",
@@ -151,9 +158,14 @@ Szczegóły serwera wraz z listą jego kontenerów.
   "server": {
     "uuid": "a3f2c1d4e5b6...",
     "hostname": "server1",
+    "display_name": "Serwer produkcyjny",
+    "icon": "server",
+    "status": "active",
     "approved": true,
+    "online": true,
     "cpu_model": "Intel Core i5-13600KF",
     "cpu_cores": 20,
+    "cpu_threads": 20,
     "memory_total": 32673112064,
     "platform": "Ubuntu 25.10",
     "kernel": "6.12.62",
@@ -170,6 +182,9 @@ Szczegóły serwera wraz z listą jego kontenerów.
       "image": "nginx:latest",
       "project": "webstack",
       "service": "nginx",
+      "state": "running",
+      "health": "healthy",
+      "status": "running",
       "first_seen": "2026-01-01T00:00:00Z",
       "last_seen": "2026-02-19T12:00:00Z"
     }
@@ -196,6 +211,28 @@ Zatwierdza serwer — odblokowuje zbieranie metryk. Jeśli agent jest aktualnie 
   "success": true
 }
 ```
+
+---
+
+### `PATCH /api/servers/:uuid`
+
+Aktualizuje metadane serwera (`display_name`, `icon`, `status`).
+
+`status` przyjmuje wyłącznie: `active` lub `rejected`.
+
+- Ustawienie `status: "rejected"` powoduje także `approved=false` oraz natychmiastowe rozłączenie aktywnego agenta.
+- Ustawienie `status: "active"` przywraca `approved=true`.
+
+**Request (przykład):**
+```json
+{
+  "display_name": "Node A",
+  "icon": "server",
+  "status": "active"
+}
+```
+
+**Response `200`:** zaktualizowany obiekt serwera.
 
 ---
 
@@ -255,6 +292,57 @@ Komenda dla konkretnego kontenera. `:id` to `container_id` (skrócone ID Dockera
 | `200` | Sukces — payload z agenta |
 | `500` | Timeout (agent nie odpowiedział w 30s) lub inny błąd wewnętrzny |
 | `503` | Agent nie jest połączony |
+
+---
+
+### `POST /api/servers/:uuid/containers/:id/check-update`
+
+Sprawdza dostępność aktualizacji obrazu dla pojedynczego kontenera.
+
+**Response `200`:** surowy JSON zwrócony przez agenta.
+
+---
+
+### `POST /api/servers/:uuid/containers/:id/update`
+
+Uruchamia aktualizację pojedynczego kontenera.
+
+**Response `200`:** surowy JSON zwrócony przez agenta.
+
+---
+
+### `DELETE /api/servers/:uuid/containers/:id`
+
+Usuwa pojedynczy rekord kontenera z bazy danych (wymaga hasła użytkownika).
+
+**Request:**
+```json
+{
+  "password": "twoje-haslo"
+}
+```
+
+---
+
+### `DELETE /api/servers/:uuid/containers`
+
+Usuwa wiele rekordów kontenerów z bazy danych (wymaga hasła użytkownika).
+
+**Request:**
+```json
+{
+  "container_ids": ["abc123", "def456"],
+  "password": "twoje-haslo"
+}
+```
+
+**Response `200` / `207`:**
+```json
+{
+  "deleted": ["abc123"],
+  "failed": ["def456"]
+}
+```
 
 ---
 
@@ -460,6 +548,10 @@ Serwery bez aktywnych danych w RAM (brak agenta lub agent rozłączony) są pomi
       "hostname": "server1",
       "cpu": 12.5,
       "memory": 10622971904,
+      "mem_percent": 32.5,
+      "memory_total": 32673112064,
+      "disk_used": 351554801664,
+      "disk_used_percent": 53.7,
       "disk_read_bytes_per_sec": 1048576,
       "disk_write_bytes_per_sec": 524288,
       "net_rx_bytes_per_sec": 204800,
@@ -475,6 +567,10 @@ Serwery bez aktywnych danych w RAM (brak agenta lub agent rozłączony) są pomi
 | `hostname` | string | Nazwa hosta |
 | `cpu` | float64 | Użycie CPU (%) |
 | `memory` | uint64 | Użyta pamięć RAM (bajty) |
+| `mem_percent` | float64 | Użycie RAM (%) |
+| `memory_total` | uint64 | Całkowita pamięć RAM (bajty) |
+| `disk_used` | uint64 | Zajęte miejsce na dysku (bajty) |
+| `disk_used_percent` | float64 | Zajętość dysku (%) |
 | `disk_read_bytes_per_sec` | uint64 | Odczyty dysku (bajty/s) |
 | `disk_write_bytes_per_sec` | uint64 | Zapisy dysku (bajty/s) |
 | `net_rx_bytes_per_sec` | uint64 | Odbiór sieciowy (bajty/s) |
@@ -505,6 +601,7 @@ Jeśli brak danych hosta w RAM (agent offline) — tick jest pomijany, brak even
   },
   "containers": [
     {
+      "ContainerID": "fb629436cc81",
       "Timestamp": 1739967600,
       "CPU": 0.5,
       "MemUsed": 52428800,
@@ -512,13 +609,17 @@ Jeśli brak danych hosta w RAM (agent offline) — tick jest pomijany, brak even
       "DiskUsed": 10485760,
       "DiskPercent": 0.0,
       "NetRx": 1024000,
-      "NetTx": 512000
+      "NetTx": 512000,
+      "State": "running",
+      "Health": "healthy",
+      "Status": "running",
+      "Project": "webstack"
     }
   ]
 }
 ```
 
-> **Uwaga:** Pole `host` w tym endpoincie zwraca klucze w `PascalCase` (Go struct serialized directly), w odróżnieniu od `snake_case` w `/live/all` i endpointach historycznych. Frontend musi obsługiwać obie konwencje lub normalizować po stronie klienta.
+> **Uwaga:** Pole `host` w tym endpoincie zwraca klucze w `PascalCase` (Go struct serialized directly), w odróżnieniu od `snake_case` w `/api/metrics/live/all` i endpointach historycznych. Frontend musi obsługiwać obie konwencje lub normalizować po stronie klienta.
 
 ---
 

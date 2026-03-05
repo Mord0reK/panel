@@ -31,6 +31,7 @@ export function ContainersPageClient({ uuid, detail }: ContainersPageClientProps
             variant={bulkMode ? 'secondary' : 'ghost'}
             size="sm"
             onClick={toggleBulk}
+            data-testid="containers-bulk-toggle"
             className="h-7 gap-1.5 px-2 text-xs text-zinc-400 hover:text-zinc-200"
           >
             {bulkMode ? (

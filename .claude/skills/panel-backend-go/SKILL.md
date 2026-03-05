@@ -1,6 +1,6 @@
 ---
 name: panel-backend-go
-description: Zasady dla backendu API w Go. Obsługa bazy SQLite (GORM), serwowanie danych przez Server-Sent Events (SSE) z zachowaniem specyficznego formatowania PascalCase oraz autoryzacja JWT.
+description: Zasady dla backendu API w Go. Obsługa SQLite przez database/sql + modernc, migracje goose (embedded), SSE (snake_case/PascalCase) oraz autoryzacja JWT.
 ---
 
 # Skill: Panel Backend Go
@@ -16,14 +16,19 @@ internal/
   api/
     auth.go           — AuthHandler: POST /api/setup, POST /api/login, GET /api/auth/status
     servers.go        — ServersHandler: GET /api/servers, GET /api/servers/{uuid},
-                        POST /api/servers/{uuid}/approve, PATCH /api/servers/{uuid},
-                        DELETE /api/servers/{uuid}
-    metrics.go        — MetricsHandler: GET /api/servers/{uuid}/metrics?range=...,
-                        GET /api/servers/{uuid}/containers/{id}/metrics?range=...
+                        PUT /api/servers/{uuid}/approve, PATCH /api/servers/{uuid},
+                        DELETE /api/servers/{uuid},
+                        DELETE /api/servers/{uuid}/containers/{id},
+                        DELETE /api/servers/{uuid}/containers
+    metrics.go        — MetricsHandler: GET /api/metrics/history/servers/{uuid}?range=...,
+                        GET /api/metrics/history/servers/{uuid}/containers/{id}?range=...
                         Zakresy: 1m (RAM buffer), 5m–30d (SQLite)
     commands.go       — CommandsHandler: POST /api/servers/{uuid}/command
+                        POST /api/servers/{uuid}/containers/{id}/command
+                        POST /api/servers/{uuid}/containers/{id}/check-update
+                        POST /api/servers/{uuid}/containers/{id}/update
                         (wysyła CommandMessage → agent przez WebSocket, czeka 30s)
-    sse.go            — SSEHandler: GET /live/all, GET /live/servers/{uuid}
+    sse.go            — SSEHandler: GET /api/metrics/live/all, GET /api/metrics/live/servers/{uuid}
                         *** ASYMETRIA SSE — patrz sekcja poniżej ***
     websocket.go      — WebSocket upgrade dla agentów (gorilla/websocket)
 
@@ -51,8 +56,10 @@ internal/
                         CPUModel, CPUCores, CPUThreads, MemoryTotal, Platform, Kernel,
                         Architecture, LastSeen, CreatedAt}
                         Online = computed (offlineThreshold = 30s), nie stored
+                        Nowe serwery: auto-approve (approved=true, status=active) w Upsert
                         GetByUUID, GetAll, Upsert, UpdateLastSeen, Approve, UpdateMeta, Delete
-    container.go      — Container{AgentUUID, ContainerID, Name, Image, Project, Service}
+    container.go      — Container{AgentUUID, ContainerID, Name, Image, Project, Service,
+                        State, Health, Status}
                         GetByAgent, Upsert (ON CONFLICT DO UPDATE)
     metrics.go        — RawMetricPoint, RawHostMetricPoint, HistoricalMetricPoint,
                         HistoricalHostMetricPoint
@@ -83,6 +90,8 @@ migrations/           — SQL zarządzany przez goose (embedded)
                                metrics_5s … metrics_12h (10 tabel)
   00002_disk_used_percent.sql— ADD COLUMN disk_used_percent_{avg,min,max} do wszystkich metrics_*
   00003_cpu_cores_threads.sql— ADD COLUMN cpu_threads do servers
+  00004_container_state.sql  — ADD COLUMN state do containers
+  00005_container_health.sql — ADD COLUMN health, status do containers
 
 Kluczowe zależności (go.mod):
   github.com/golang-jwt/jwt/v5 v5.3.1
@@ -129,7 +138,7 @@ Konkretne pułapki w tym projekcie:
 
 Istnieją dwa endpointy SSE — mają **różne formaty JSON**:
 
-### `GET /live/all` (`HandleLiveAll`)
+### `GET /api/metrics/live/all` (`HandleLiveAll`)
 Wysyła **snake_case** (lokalny struct z json tagami):
 ```json
 {
@@ -144,7 +153,7 @@ Wysyła **snake_case** (lokalny struct z json tagami):
 ```
 Frontend konsumuje przez: `normalizeLiveHost()` w `frontend/types/index.ts`
 
-### `GET /live/servers/{uuid}` (`HandleLiveServer`)
+### `GET /api/metrics/live/servers/{uuid}` (`HandleLiveServer`)
 Wysyła **PascalCase** (lokalne structy `hostLive` / `containerLive` z json tagami PascalCase):
 ```json
 {

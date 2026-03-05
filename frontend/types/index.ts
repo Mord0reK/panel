@@ -19,10 +19,10 @@ export interface Server {
   uuid: string
   hostname: string
   display_name?: string // empty or missing — use hostname as fallback
-  icon?: string         // empty or missing; prefix: "lucide:" or "custom:"
+  icon?: string // empty or missing; prefix: "lucide:" or "custom:"
   status?: 'active' | 'rejected' // defaults to "active" when absent
   approved: boolean
-  online?: boolean      // computed by backend (last_seen < 30s), may be absent in old responses
+  online?: boolean // computed by backend (last_seen < 30s), may be absent in old responses
   cpu_model: string
   cpu_cores: number
   cpu_threads: number
@@ -60,7 +60,24 @@ export interface ServerDetailResponse {
 
 export interface CustomIcon {
   name: string // filename e.g. "proxmox.svg"
-  url: string  // public path e.g. "/icons/proxmox.svg"
+  url: string // public path e.g. "/icons/proxmox.svg"
+}
+
+// =============================================================================
+// SERVICES INTEGRATIONS
+// =============================================================================
+
+export type ServiceAuthType = 'token' | 'basic_auth'
+
+export interface ServiceDefinition {
+  key: string
+  display_name: string
+  icon: string
+  enabled: boolean
+  requires_base_url: boolean
+  auth_type: ServiceAuthType
+  fixed_base_url?: string
+  endpoints: string[]
 }
 
 // =============================================================================
