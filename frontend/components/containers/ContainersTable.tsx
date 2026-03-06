@@ -297,7 +297,7 @@ function ProjectGroupHeader({
         onCheckedChange={onSelectAll}
         ariaLabel="Zaznacz wszystkie w grupie"
       />
-      <td colSpan={6} className="px-4 py-2">
+      <td colSpan={6} className="px-3 py-2 sm:px-4">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
             {isStandalone ? 'Standalone' : projectName}
@@ -307,9 +307,9 @@ function ProjectGroupHeader({
           </span>
         </div>
       </td>
-      <td className="px-4 py-2 text-right">
+      <td className="px-3 py-2 text-right sm:px-4">
         {showActions && !bulkMode && (
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-1">
             <Button
               variant="outline"
               size="sm"
@@ -385,25 +385,41 @@ function ContainerRow({
         onCheckedChange={(val) => onSelect(c.container_id, val)}
         ariaLabel={`Zaznacz ${c.name}`}
       />
-      <td className="px-4 py-3">
-        <div className="font-medium text-zinc-200">{c.name}</div>
+      <td className="px-3 py-3 sm:px-4">
+        <div className="space-y-1.5">
+          <div className="font-medium text-zinc-200">{c.name}</div>
+          <div className="space-y-1 text-xs text-zinc-500 lg:hidden">
+            <div className="truncate">{c.service || '—'}</div>
+            <div suppressHydrationWarning>{formatRelativeTime(c.last_seen)}</div>
+            <div className="xl:hidden">
+              <Badge variant="secondary" className="max-w-full font-mono text-[11px]">
+                <span className="truncate">{c.image}</span>
+              </Badge>
+            </div>
+          </div>
+        </div>
       </td>
-      <td className="px-4 py-3">
-        <StateBadge state={c.state} />
+      <td className="px-3 py-3 sm:px-4">
+        <div className="space-y-1.5">
+          <StateBadge state={c.state} />
+          <div className="lg:hidden">
+            <HealthBadge health={c.health ?? ''} uptime={uptime} />
+          </div>
+        </div>
       </td>
-      <td className="px-4 py-3">
+      <td className="hidden px-4 py-3 lg:table-cell">
         <HealthBadge health={c.health ?? ''} uptime={uptime} />
       </td>
-      <td className="px-4 py-3">
+      <td className="hidden px-4 py-3 xl:table-cell">
         <Badge variant="secondary" className="font-mono text-xs">
           {c.image}
         </Badge>
       </td>
-      <td className="px-4 py-3 text-zinc-400">{c.service || '—'}</td>
-      <td className="px-4 py-3 text-zinc-400" suppressHydrationWarning>
+      <td className="hidden px-4 py-3 text-zinc-400 lg:table-cell">{c.service || '—'}</td>
+      <td className="hidden px-4 py-3 text-zinc-400 xl:table-cell" suppressHydrationWarning>
         {formatRelativeTime(c.last_seen)}
       </td>
-      <td className="px-4 py-3 text-right">
+      <td className="px-3 py-3 text-right sm:px-4">
         {!bulkMode && (
           <ContainerActions
             uuid={uuid}
@@ -537,17 +553,17 @@ function BulkActionBar({
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5">
+    <div className="flex flex-col gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 sm:flex-row sm:items-center sm:px-4 sm:py-2.5">
       <span className="text-sm font-medium text-zinc-300">
         Zaznaczono: <span className="text-zinc-100">{count}</span>
       </span>
-      <div className="flex items-center gap-1.5 ml-auto">
+      <div className="flex w-full flex-wrap items-center gap-1.5 sm:ml-auto sm:w-auto sm:justify-end">
         <Button
           variant="outline"
           size="sm"
           disabled={count === 0 || pending !== null}
           onClick={() => runBulkAction('start')}
-          className="h-7 gap-1.5 px-3 text-xs"
+          className="h-7 flex-1 gap-1.5 px-3 text-xs sm:flex-none"
         >
           <PlayIcon className={`size-3 ${pending === 'start' ? 'animate-spin' : ''}`} />
           Start
@@ -557,7 +573,7 @@ function BulkActionBar({
           size="sm"
           disabled={count === 0 || pending !== null}
           onClick={() => runBulkAction('stop')}
-          className="h-7 gap-1.5 px-3 text-xs border-red-800 text-red-400 hover:bg-red-900/30 hover:text-red-300"
+          className="h-7 flex-1 gap-1.5 px-3 text-xs border-red-800 text-red-400 hover:bg-red-900/30 hover:text-red-300 sm:flex-none"
         >
           <SquareIcon className={`size-3 ${pending === 'stop' ? 'animate-spin' : ''}`} />
           Stop
@@ -567,7 +583,7 @@ function BulkActionBar({
           size="sm"
           disabled={count === 0 || pending !== null}
           onClick={() => runBulkAction('restart')}
-          className="h-7 gap-1.5 px-3 text-xs"
+          className="h-7 flex-1 gap-1.5 px-3 text-xs sm:flex-none"
         >
           <RotateCwIcon className={`size-3 ${pending === 'restart' ? 'animate-spin' : ''}`} />
           Restart
@@ -581,7 +597,7 @@ function BulkActionBar({
             setDeleteError(null)
             setDeleteOpen(true)
           }}
-          className="h-7 gap-1.5 px-3 text-xs border-red-800/60 text-red-400 hover:bg-red-950/50 hover:text-red-300 hover:border-red-700"
+          className="h-7 w-full gap-1.5 px-3 text-xs border-red-800/60 text-red-400 hover:bg-red-950/50 hover:text-red-300 hover:border-red-700 sm:w-auto"
         >
           <Trash2Icon className="size-3" />
           Usuń
@@ -730,7 +746,7 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
 
   if (mergedContainers.length === 0) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center text-sm text-zinc-500">
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-center text-sm text-zinc-500 sm:p-8">
         Brak kontenerów
       </div>
     )
@@ -779,13 +795,13 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
                 }}
                 ariaLabel="Zaznacz wszystkie"
               />
-              <th className="px-4 py-3 font-medium">Nazwa</th>
-              <th className="px-4 py-3 font-medium">Stan</th>
-              <th className="px-4 py-3 font-medium">Health</th>
-              <th className="px-4 py-3 font-medium">Obraz</th>
-              <th className="px-4 py-3 font-medium">Serwis</th>
-              <th className="px-4 py-3 font-medium">Ostatnio widziany</th>
-              <th className="px-4 py-3 text-right font-medium">Akcje</th>
+              <th className="px-3 py-3 font-medium sm:px-4">Nazwa</th>
+              <th className="px-3 py-3 font-medium sm:px-4">Stan</th>
+              <th className="hidden px-4 py-3 font-medium lg:table-cell">Health</th>
+              <th className="hidden px-4 py-3 font-medium xl:table-cell">Obraz</th>
+              <th className="hidden px-4 py-3 font-medium lg:table-cell">Serwis</th>
+              <th className="hidden px-4 py-3 font-medium xl:table-cell">Ostatnio widziany</th>
+              <th className="px-3 py-3 text-right font-medium sm:px-4">Akcje</th>
             </tr>
           </thead>
           <tbody>

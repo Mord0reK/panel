@@ -21,10 +21,10 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
         <span
-          className={`flex items-center gap-1.5 text-xs ${
+          className={`inline-flex items-center gap-1.5 self-start text-xs sm:self-auto ${
             connected ? 'text-emerald-400' : 'text-muted-foreground'
           }`}
         >
@@ -73,7 +73,7 @@ export default function DashboardPage() {
           Brak serwerów. Podłącz agenta, aby rozpocząć monitorowanie.
         </p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {servers.map((server) => (
             <ServerCard
               key={server.uuid}

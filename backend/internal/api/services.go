@@ -379,3 +379,57 @@ func (h *ServicesHandler) buildTestConfig(def integrations.Definition, req Servi
 
 	return cfg, nil
 }
+
+func (h *ServicesHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
+	serviceKey := mux.Vars(r)["service"]
+	def, ok := integrations.GetDefinition(serviceKey)
+	if !ok {
+		http.Error(w, "service not found", http.StatusNotFound)
+		return
+	}
+
+	service, ok := integrations.GetService(serviceKey)
+	if !ok {
+		http.Error(w, "service handler not found", http.StatusNotFound)
+		return
+	}
+
+	dashboardProvider, ok := service.(integrations.DashboardProvider)
+	if !ok {
+		http.Error(w, "service stats not supported", http.StatusNotFound)
+		return
+	}
+
+	var integrationModel models.ServiceIntegration
+	existing, err := integrationModel.GetByKey(h.db, serviceKey)
+	if err == sql.ErrNoRows {
+		http.Error(w, "service configuration not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !existing.Enabled {
+		http.Error(w, "service is disabled", http.StatusBadRequest)
+		return
+	}
+
+	testCfg, err := h.buildTestConfig(def, ServiceConfigRequest{}, existing)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	payload, err := dashboardProvider.FetchDashboard(ctx, testCfg)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(payload)
+}

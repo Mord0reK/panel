@@ -1,4 +1,5 @@
 import type {
+  AdGuardHomeDashboardResponse,
   AuthStatusResponse,
   CommandRequest,
   ContainerAction,
@@ -117,6 +118,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+  },
+
+  getServiceStats(serviceKey: string) {
+    return apiFetch<AdGuardHomeDashboardResponse>(
+      `/api/services/${serviceKey}/stats`
+    )
   },
 
   // -------------------------------------------------------------------------

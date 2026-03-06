@@ -19,12 +19,12 @@ export default async function MetricsPage({
   const detail = (await res.json()) as ServerDetailResponse
 
   return (
-    <main className="space-y-6 p-4">
+    <section className="space-y-4 sm:space-y-6">
       {/* Sekcja statyczna — Server Component */}
       <ServerInfo server={detail.server} />
 
       {/* Sekcja wykresów — Client Component */}
       <MetricsGrid uuid={uuid} containers={detail.containers ?? []} />
-    </main>
+    </section>
   )
 }

@@ -14,7 +14,7 @@ export function SettingsNav() {
   const pathname = usePathname()
 
   return (
-    <nav className="flex items-center gap-2" aria-label="Nawigacja ustawień">
+    <nav className="flex flex-wrap items-center gap-2" aria-label="Nawigacja ustawień">
       {items.map((item) => {
         const isActive = pathname === item.href
         return (

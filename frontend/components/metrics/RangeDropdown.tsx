@@ -1,6 +1,5 @@
 'use client'
 
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -52,7 +51,7 @@ const GROUPS: { label: string; items: { value: MetricRange; label: string }[] }[
 export function RangeDropdown({ value, onChange }: RangeDropdownProps) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as MetricRange)}>
-      <SelectTrigger className="w-44" data-testid="metrics-range-trigger">
+      <SelectTrigger className="w-full sm:w-44" data-testid="metrics-range-trigger">
         <SelectValue>
           {value === '1m' ? (
             <span className="flex items-center gap-2">

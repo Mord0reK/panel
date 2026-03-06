@@ -30,3 +30,7 @@ type Service interface {
 	Definition() Definition
 	TestConnection(ctx context.Context, cfg TestConfig) (int, error)
 }
+
+type DashboardProvider interface {
+	FetchDashboard(ctx context.Context, cfg TestConfig) (any, error)
+}

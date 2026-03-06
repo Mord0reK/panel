@@ -80,6 +80,45 @@ export interface ServiceDefinition {
   endpoints: string[]
 }
 
+export interface AdGuardTopItem {
+  name: string
+  count: number
+}
+
+export interface AdGuardHomeDashboardResponse {
+  service_key: string
+  status: {
+    protection_enabled: boolean
+    running: boolean
+  }
+  version: {
+    current_version: string
+    latest_version?: string
+    announcement?: string
+    announcement_url?: string
+    can_auto_update: boolean
+    update_available: boolean
+    check_disabled: boolean
+    check_failed: boolean
+  }
+  stats: {
+    time_units: string
+    num_dns_queries: number
+    num_blocked_filtering: number
+    num_replaced_safebrowsing: number
+    num_replaced_safesearch: number
+    num_replaced_parental: number
+    avg_processing_time: number
+    dns_queries: number[]
+    blocked_filtering: number[]
+    replaced_safebrowsing: number[]
+    replaced_parental: number[]
+    top_clients: AdGuardTopItem[]
+    top_queried_domains: AdGuardTopItem[]
+    top_blocked_domains: AdGuardTopItem[]
+  }
+}
+
 // =============================================================================
 // COMMANDS
 // =============================================================================

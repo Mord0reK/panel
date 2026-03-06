@@ -10,6 +10,7 @@ function makeServer(overrides: Partial<Server> = {}): Server {
     approved: true,
     cpu_model: 'Intel Core i7-12700K',
     cpu_cores: 12,
+    cpu_threads: 20,
     memory_total: 34_359_738_368, // 32 GB
     platform: 'Ubuntu 24.04',
     kernel: '6.8.0-45-generic',
@@ -23,17 +24,17 @@ function makeServer(overrides: Partial<Server> = {}): Server {
 describe('ServerInfo', () => {
   it('renders hostname', () => {
     render(<ServerInfo server={makeServer()} />)
-    expect(screen.getByText('web-01')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'web-01' })).toBeInTheDocument()
   })
 
   it('renders CPU model', () => {
     render(<ServerInfo server={makeServer()} />)
-    expect(screen.getByText('Intel Core i7-12700K')).toBeInTheDocument()
+    expect(screen.getByText(/Intel Core i7-12700K/)).toBeInTheDocument()
   })
 
   it('renders CPU cores count', () => {
     render(<ServerInfo server={makeServer()} />)
-    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(screen.getByText(/12 rdzeni/)).toBeInTheDocument()
   })
 
   it('renders formatted RAM total', () => {
@@ -57,21 +58,25 @@ describe('ServerInfo', () => {
     expect(screen.getByText('amd64')).toBeInTheDocument()
   })
 
-  it('shows dash for missing cpu_model', () => {
+  it('omits CPU stats when cpu_model is missing', () => {
     render(<ServerInfo server={makeServer({ cpu_model: '' })} />)
-    const labels = screen.getAllByText('—')
-    expect(labels.length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText(/rdzeni/)).not.toBeInTheDocument()
   })
 
-  it('shows dash for zero cpu_cores', () => {
+  it('omits CPU stats when cpu_cores is zero', () => {
     render(<ServerInfo server={makeServer({ cpu_cores: 0 })} />)
-    const labels = screen.getAllByText('—')
-    expect(labels.length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText(/rdzeni/)).not.toBeInTheDocument()
   })
 
-  it('shows dash for zero memory_total', () => {
+  it('omits memory stats when memory_total is zero', () => {
     render(<ServerInfo server={makeServer({ memory_total: 0 })} />)
-    const labels = screen.getAllByText('—')
-    expect(labels.length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('32 GB')).not.toBeInTheDocument()
+  })
+
+  it('stacks the layout on mobile before switching to a horizontal row', () => {
+    const { container } = render(<ServerInfo server={makeServer()} />)
+
+    expect(container.firstChild).toHaveClass('flex-col')
+    expect(container.firstChild).toHaveClass('sm:flex-row')
   })
 })

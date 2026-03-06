@@ -234,12 +234,12 @@ export default function SettingsServicesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="space-y-3">
         <h1 className="text-xl font-semibold">Integracje usług</h1>
         <Button
           onClick={saveAll}
           disabled={!hasChanges || globalSaving}
-          className="mt-2"
+          className="w-full sm:w-auto"
         >
           {globalSaving ? 'Zapisywanie…' : 'Zastosuj zmiany'}
         </Button>
@@ -289,13 +289,13 @@ export default function SettingsServicesPage() {
               key={service.key}
               data-testid={`service-card-${service.key}`}
               className={cn(
-                'space-y-4 rounded-lg border p-4 transition-colors',
+                'space-y-4 rounded-lg border p-3 transition-colors sm:p-4',
                 isExpanded
                   ? 'border-emerald-700/60 bg-zinc-900/80'
                   : 'border-zinc-800 bg-zinc-900/55'
               )}
             >
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/80">
                     <Image
@@ -313,7 +313,7 @@ export default function SettingsServicesPage() {
                     <p className="text-xs text-zinc-400">{service.key}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 self-start sm:self-auto">
                   <button
                     type="button"
                     role="switch"
@@ -440,7 +440,7 @@ export default function SettingsServicesPage() {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <Button
                       type="button"
                       variant="outline"
@@ -448,6 +448,7 @@ export default function SettingsServicesPage() {
                       disabled={isTesting || globalSaving}
                       onClick={() => handleTest(service, draft)}
                       data-testid={`service-test-${service.key}`}
+                      className="w-full sm:w-auto"
                     >
                       {isTesting ? 'Testowanie…' : 'Testuj połączenie'}
                     </Button>

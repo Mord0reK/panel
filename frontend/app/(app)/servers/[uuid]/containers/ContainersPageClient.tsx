@@ -21,8 +21,8 @@ export function ContainersPageClient({ uuid, detail }: ContainersPageClientProps
   }
 
   return (
-    <main className="space-y-6 p-4">
-      <div className="flex items-start justify-between">
+    <section className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-xl font-semibold text-zinc-100">
             Kontenery — {detail.server.hostname}
@@ -32,7 +32,7 @@ export function ContainersPageClient({ uuid, detail }: ContainersPageClientProps
             size="sm"
             onClick={toggleBulk}
             data-testid="containers-bulk-toggle"
-            className="h-7 gap-1.5 px-2 text-xs text-zinc-400 hover:text-zinc-200"
+            className="h-7 w-full justify-center gap-1.5 px-2 text-xs text-zinc-400 hover:text-zinc-200 sm:w-auto"
           >
             {bulkMode ? (
               <>
@@ -55,6 +55,6 @@ export function ContainersPageClient({ uuid, detail }: ContainersPageClientProps
         bulkMode={bulkMode}
         onToggleBulk={toggleBulk}
       />
-    </main>
+    </section>
   )
 }

@@ -118,6 +118,7 @@ func main() {
 	apiRouter.HandleFunc("/services/{service}/config", servicesHandler.HandleGetConfig).Methods("GET")
 	apiRouter.HandleFunc("/services/{service}/config", servicesHandler.HandleConfigUpsert).Methods("PUT")
 	apiRouter.HandleFunc("/services/{service}/test", servicesHandler.HandleTestConnection).Methods("POST")
+	apiRouter.HandleFunc("/services/{service}/stats", servicesHandler.HandleStats).Methods("GET")
 
 	// WebSocket (Agent)
 	r.HandleFunc("/ws/agent", wsHandler.HandleAgent)

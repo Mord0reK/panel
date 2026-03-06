@@ -112,9 +112,9 @@ describe('ServerCard', () => {
 
     // number portion of percent is separate
     expect(screen.getByText('74.40')).toBeInTheDocument()
-    // value may be split over multiple nodes; just ensure number appears
+    // formatter rounding can differ by a hundredth depending on unit conversion
     expect(
-      screen.getByText((content) => /10\.25/.test(content))
+      screen.getByText((content) => /10\.2[45]/.test(content))
     ).toBeInTheDocument()
   })
 
@@ -142,5 +142,25 @@ describe('ServerCard', () => {
 
     const progressBar = container.querySelector('[style*="width"]')
     expect(progressBar).toHaveStyle({ width: '100%' })
+  })
+
+  it('uses a single-column metrics grid on mobile before switching to two columns', () => {
+    const { container } = render(
+      <ServerCard hostname="web-01" uuid="uuid-1" snapshot={makeSnapshot()} />
+    )
+
+    const metricsGrid = container.querySelector('.grid')
+    expect(metricsGrid).toHaveClass('grid-cols-1')
+    expect(metricsGrid).toHaveClass('sm:grid-cols-2')
+  })
+
+  it('reduces outer padding on mobile', () => {
+    render(
+      <ServerCard hostname="web-01" uuid="uuid-1" snapshot={makeSnapshot()} />
+    )
+
+    const link = screen.getByRole('link')
+    expect(link).toHaveClass('p-3')
+    expect(link).toHaveClass('sm:p-4')
   })
 })

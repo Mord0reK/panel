@@ -49,13 +49,13 @@ function ServerRow({
   const displayName = server.display_name || server.hostname
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/30">
+    <div className="flex flex-col gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted">
         <ServerIconDisplay icon={server.icon} className="size-5" />
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="truncate font-medium text-sm">{displayName}</span>
           {displayName !== server.hostname && (
             <span className="truncate text-xs text-muted-foreground">
@@ -63,7 +63,7 @@ function ServerRow({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span>{server.platform || '—'}</span>
           <span>·</span>
           <span>{server.architecture || '—'}</span>
@@ -72,7 +72,7 @@ function ServerRow({
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:shrink-0 sm:justify-end">
         {server.status !== 'rejected' && (
           <>
             <Badge

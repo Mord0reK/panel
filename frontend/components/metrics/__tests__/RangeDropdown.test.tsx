@@ -3,12 +3,11 @@ import { render, screen } from '@testing-library/react'
 import { RangeDropdown } from '@/components/metrics/RangeDropdown'
 
 describe('RangeDropdown', () => {
-  it('renders LIVE badge for 1m value', () => {
+  it('renders live label for 1m value', () => {
     const onChange = jest.fn()
     render(<RangeDropdown value="1m" onChange={onChange} />)
 
-    expect(screen.getByText('LIVE')).toBeInTheDocument()
-    expect(screen.getByText('1m')).toBeInTheDocument()
+    expect(screen.getByText('1 minuta (Na żywo)')).toBeInTheDocument()
   })
 
   it('renders non-live value label in trigger', () => {
@@ -44,5 +43,14 @@ describe('RangeDropdown', () => {
     render(<RangeDropdown value="7d" onChange={onChange} />)
 
     expect(screen.getByText('7 dni')).toBeInTheDocument()
+  })
+
+  it('expands to full width on mobile and clamps on larger screens', () => {
+    const onChange = jest.fn()
+    render(<RangeDropdown value="1m" onChange={onChange} />)
+
+    const trigger = screen.getByRole('combobox')
+    expect(trigger).toHaveClass('w-full')
+    expect(trigger).toHaveClass('sm:w-44')
   })
 })

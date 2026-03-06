@@ -80,7 +80,7 @@ describe('MetricsGrid', () => {
   it('shows Live status indicator when connected', () => {
     render(<MetricsGrid uuid="test-uuid" />)
 
-    expect(screen.getByText('Live')).toBeInTheDocument()
+    expect(screen.getByText('Na żywo')).toBeInTheDocument()
   })
 
   it('shows connection error indicator', () => {
@@ -111,10 +111,10 @@ describe('MetricsGrid', () => {
     expect(screen.getByText('Łączenie…')).toBeInTheDocument()
   })
 
-  it('renders RangeDropdown with LIVE badge', () => {
+  it('renders RangeDropdown with live range label', () => {
     render(<MetricsGrid uuid="test-uuid" />)
 
-    expect(screen.getByText('LIVE')).toBeInTheDocument()
+    expect(screen.getByText('1 minuta (Na żywo)')).toBeInTheDocument()
   })
 
   it('passes uuid to useServerMetrics', () => {
@@ -123,5 +123,13 @@ describe('MetricsGrid', () => {
     render(<MetricsGrid uuid="my-uuid" />)
 
     expect(useServerMetrics).toHaveBeenCalledWith('my-uuid', true)
+  })
+
+  it('stacks toolbar controls on mobile before switching to a row layout', () => {
+    const { container } = render(<MetricsGrid uuid="test-uuid" />)
+
+    const toolbar = container.querySelector('.space-y-4 > .flex')
+    expect(toolbar).toHaveClass('flex-col')
+    expect(toolbar).toHaveClass('sm:flex-row')
   })
 })

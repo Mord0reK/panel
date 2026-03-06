@@ -52,8 +52,10 @@ function makeServer(overrides: Partial<Server> = {}): Server {
 // shadcn/ui sidebar requires a provider context; we provide a minimal mock
 jest.mock('@/components/ui/sidebar', () => {
   const React = require('react')
+  const setOpenMobile = jest.fn()
 
   return {
+    useSidebar: () => ({ setOpenMobile }),
     SidebarMenuItem: ({ children, ...props }: React.ComponentProps<'li'>) => (
       <li data-sidebar="menu-item" {...props}>{children}</li>
     ),

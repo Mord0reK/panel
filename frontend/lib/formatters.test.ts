@@ -216,13 +216,16 @@ describe('formatTimestamp', () => {
 // =============================================================================
 
 describe('formatRelativeTime', () => {
+  let dateNowSpy: jest.SpyInstance<number, []>
+
   beforeEach(() => {
-    jest.useFakeTimers()
-    jest.setSystemTime(new Date('2026-02-20T12:00:00.000Z'))
+    dateNowSpy = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(new Date('2026-02-20T12:00:00.000Z').getTime())
   })
 
   afterEach(() => {
-    jest.useRealTimers()
+    dateNowSpy.mockRestore()
   })
 
   it('zwraca "przed chwilą" dla < 10s temu', () => {

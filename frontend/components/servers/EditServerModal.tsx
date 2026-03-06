@@ -113,14 +113,14 @@ export function EditServerModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-[calc(100%-1.5rem)] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Edytuj serwer</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5">
+        <div className="space-y-4 sm:space-y-5">
           {/* ── Read-only info ── */}
-          <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm space-y-1.5">
+          <div className="space-y-1.5 rounded-lg border bg-muted/30 px-3 py-3 text-sm sm:px-4">
             <InfoRow label="Hostname" value={server.hostname} />
             <InfoRow label="System" value={server.platform || '—'} />
             <InfoRow label="Kernel" value={server.kernel || '—'} />
@@ -147,14 +147,14 @@ export function EditServerModal({
           <div className="space-y-1.5">
             <Label>Ikona</Label>
             <Tabs defaultValue="builtin">
-              <TabsList className="mb-3">
+              <TabsList className="mb-3 w-full sm:w-fit">
                 <TabsTrigger value="builtin">Wbudowane</TabsTrigger>
                 <TabsTrigger value="custom">Własne</TabsTrigger>
               </TabsList>
 
               {/* Built-in Lucide icons */}
               <TabsContent value="builtin">
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
                   {LUCIDE_ICONS.map(({ id, label, Icon }) => (
                     <IconTile
                       key={id}
@@ -178,7 +178,7 @@ export function EditServerModal({
                     <code className="text-xs">public/icons/</code>.
                   </p>
                 ) : (
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
                     {customIcons.map(({ name, url }) => {
                       const id = `custom:${name}`
                       return (
@@ -228,8 +228,8 @@ export function EditServerModal({
 // ---------------------------------------------------------------------------
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-28 shrink-0 text-muted-foreground">{label}</span>
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
+      <span className="shrink-0 text-muted-foreground sm:w-28">{label}</span>
       <span className="truncate font-mono text-xs">{value}</span>
     </div>
   )

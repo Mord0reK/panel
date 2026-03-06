@@ -84,7 +84,7 @@ describe('ContainersTable', () => {
       />,
     )
 
-    expect(screen.getByText('redis:7')).toBeInTheDocument()
+    expect(screen.getAllByText('redis:7').length).toBeGreaterThan(0)
   })
 
   it('renders service name', () => {
@@ -95,7 +95,7 @@ describe('ContainersTable', () => {
       />,
     )
 
-    expect(screen.getByText('api')).toBeInTheDocument()
+    expect(screen.getAllByText('api').length).toBeGreaterThan(0)
   })
 
   it('renders actions for each container', () => {
@@ -126,6 +126,22 @@ describe('ContainersTable', () => {
     expect(screen.getByText('Obraz')).toBeInTheDocument()
     expect(screen.getByText('Serwis')).toBeInTheDocument()
     expect(screen.getByText('Akcje')).toBeInTheDocument()
+  })
+
+  it('hides less important columns on smaller screens', () => {
+    render(
+      <ContainersTable
+        uuid="uuid-1"
+        containers={[makeContainer()]}
+      />,
+    )
+
+    expect(screen.getByText('Health').closest('th')).toHaveClass('hidden')
+    expect(screen.getByText('Health').closest('th')).toHaveClass('lg:table-cell')
+    expect(screen.getByText('Obraz').closest('th')).toHaveClass('hidden')
+    expect(screen.getByText('Obraz').closest('th')).toHaveClass('xl:table-cell')
+    expect(screen.getByText('Serwis').closest('th')).toHaveClass('hidden')
+    expect(screen.getByText('Serwis').closest('th')).toHaveClass('lg:table-cell')
   })
 
   it('renders project name as group header', () => {

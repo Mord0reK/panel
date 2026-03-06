@@ -85,6 +85,7 @@ test('strona kontenerów: tryb zaznaczania wielu elementów działa', async ({
   const bulkToggle = page.getByTestId('containers-bulk-toggle')
   await bulkToggle.click()
 
+  await expect(bulkToggle).toContainText('Zakończ zaznaczanie')
   await expect(page.getByText(/Zaznaczono:\s*\d+/)).toBeVisible()
   await page.getByRole('checkbox', { name: /^Zaznacz wszystkie$/ }).click()
   await expect(page.getByText(/Zaznaczono:\s*\d+/)).toBeVisible()
@@ -126,9 +127,30 @@ test('ustawienia integracji: pola są renderowane zgodnie z auth_type i requires
     })
   })
 
+  await page.route('**/api/services/adguardhome/config', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        service_key: 'adguardhome',
+        enabled: true,
+        base_url: 'https://adguard.local',
+        username: 'admin',
+        password: '',
+        token: '',
+        has_token: false,
+        has_password: false,
+      }),
+    })
+  })
+
   await page.goto('/settings/services')
   await expect(
     page.getByRole('heading', { name: 'Integracje usług' })
+  ).toBeVisible()
+
+  await expect(
+    page.getByRole('button', { name: 'Zastosuj zmiany' })
   ).toBeVisible()
 
   await expect(page.getByTestId('service-card-adguardhome')).toBeVisible()
@@ -137,7 +159,6 @@ test('ustawienia integracji: pola są renderowane zgodnie z auth_type i requires
   await expect(page.getByTestId('service-username-adguardhome')).toBeVisible()
   await expect(page.getByTestId('service-password-adguardhome')).toBeVisible()
   await expect(page.getByTestId('service-test-adguardhome')).toBeVisible()
-  await expect(page.getByTestId('service-save-adguardhome')).toBeVisible()
   await expect(page.getByAltText('AdGuard Home icon')).toBeVisible()
 
   await expect(page.getByTestId('service-card-tailscale')).toBeVisible()
@@ -148,5 +169,81 @@ test('ustawienia integracji: pola są renderowane zgodnie z auth_type i requires
   await expect(page.getByTestId('service-fixed-url-tailscale')).toBeVisible()
   await expect(page.getByTestId('service-token-tailscale')).toBeVisible()
   await expect(page.getByTestId('service-test-tailscale')).toBeVisible()
-  await expect(page.getByTestId('service-save-tailscale')).toBeVisible()
+})
+
+test('strona usługi AdGuard Home renderuje dashboard statystyk', async ({
+  page,
+}) => {
+  await page.route('**/api/services', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          key: 'adguardhome',
+          display_name: 'AdGuard Home',
+          icon: '/icons/hetzner-h.svg',
+          enabled: true,
+          requires_base_url: true,
+          auth_type: 'basic_auth',
+          endpoints: ['/services/adguardhome/stats'],
+        },
+      ]),
+    })
+  })
+
+  await page.route('**/api/services/adguardhome/stats', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        service_key: 'adguardhome',
+        status: {
+          protection_enabled: true,
+          running: true,
+        },
+        version: {
+          current_version: '0.107.55',
+          latest_version: '0.107.57',
+          announcement: 'Nowe filtry i poprawki stabilności.',
+          announcement_url: 'https://example.test/release',
+          can_auto_update: true,
+          update_available: true,
+          check_disabled: false,
+          check_failed: false,
+        },
+        stats: {
+          time_units: 'hours',
+          num_dns_queries: 12500,
+          num_blocked_filtering: 5000,
+          num_replaced_safebrowsing: 45,
+          num_replaced_safesearch: 25,
+          num_replaced_parental: 10,
+          avg_processing_time: 1.75,
+          dns_queries: [10, 20, 30, 40],
+          blocked_filtering: [5, 10, 12, 18],
+          replaced_safebrowsing: [1, 2, 3, 4],
+          replaced_parental: [0, 1, 0, 2],
+          top_clients: [{ name: 'MacBook-Pro', count: 3200 }],
+          top_queried_domains: [{ name: 'github.com', count: 800 }],
+          top_blocked_domains: [{ name: 'ads.example.com', count: 350 }],
+        },
+      }),
+    })
+  })
+
+  await page.goto('/services/adguardhome')
+
+  await expect(
+    page.getByRole('heading', { name: 'AdGuard Home' }).first()
+  ).toBeVisible()
+  await expect(page.getByTestId('service-dashboard-adguardhome')).toBeVisible()
+  await expect(page.getByTestId('adguard-version-badge')).toContainText(
+    'Dostępna aktualizacja'
+  )
+  await expect(page.getByText('MacBook-Pro')).toBeVisible()
+  await expect(page.getByTestId('adguard-series-dns')).toBeVisible()
+  await expect(page.getByTestId('adguard-top-blocked-domains')).toContainText(
+    'ads.example.com'
+  )
 })

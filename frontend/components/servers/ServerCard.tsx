@@ -74,27 +74,27 @@ export function ServerCard({ hostname, uuid, snapshot, icon, displayName }: Serv
   return (
     <Link
       href={`/servers/${uuid}/metrics`}
-      className="group block rounded-xl border border-zinc-800 bg-zinc-950 p-4 transition-colors hover:border-zinc-700 hover:bg-zinc-900/80"
+      className="group block rounded-xl border border-zinc-800 bg-zinc-950 p-3 transition-colors hover:border-zinc-700 hover:bg-zinc-900/80 sm:p-4"
     >
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-3 flex flex-col gap-3 sm:mb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-2">
           <ServerIconDisplay icon={icon} className="size-5 shrink-0 text-zinc-400" />
           <h3 className="truncate font-bold text-zinc-100">{serverName}</h3>
         </div>
-        <div className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${online ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20' : 'bg-zinc-800 text-zinc-500'}`}>
+        <div className={`inline-flex items-center gap-1.5 self-start rounded-full px-2 py-0.5 text-xs font-medium sm:self-auto ${online ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20' : 'bg-zinc-800 text-zinc-500'}`}>
           <span className={`size-1.5 rounded-full ${online ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
           {online ? 'Online' : 'Offline'}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* CPU */}
         <div>
           <p className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-zinc-400">
             <CpuIcon className="size-3" /> CPU
           </p>
-          <p className={`font-mono text-1xl font-bold ${cpu.text}`}>
+          <p className={`font-mono text-lg font-bold sm:text-xl ${cpu.text}`}>
             {snapshot ? snapshot.cpu.toFixed(2) : '—'}
             <span className="text-base text-zinc-500">%</span>
           </p>
@@ -108,7 +108,7 @@ export function ServerCard({ hostname, uuid, snapshot, icon, displayName }: Serv
           <p className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-zinc-400">
             <MemoryStickIcon className="size-3" /> RAM
           </p>
-          <p className={`font-mono text-1xl font-bold ${mem.text}`}>
+          <p className={`font-mono text-lg font-bold sm:text-xl ${mem.text}`}>
             {snapshot ? ram.toFixed(1) : '—'}
             <span className="text-base text-zinc-500">%</span>
           </p>
@@ -122,11 +122,11 @@ export function ServerCard({ hostname, uuid, snapshot, icon, displayName }: Serv
           <p className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-zinc-400">
             <HardDriveIcon className="size-3" /> Dysk
           </p>
-          <p className={`font-mono text-1xl font-bold ${disk.text}`}>
+          <p className={`font-mono text-lg font-bold sm:text-xl ${disk.text}`}>
             {snapshot ? snapshot.disk_used_percent.toFixed(2) : '—'}
             <span className="text-base text-zinc-500">%</span>
             {snapshot && snapshot.disk_used != null && (
-              <span className="ml-1 text-sm text-zinc-400">
+              <span className="mt-0.5 block text-xs text-zinc-400 sm:ml-1 sm:mt-0 sm:inline sm:text-sm">
                 ({formatBytes(snapshot.disk_used)})
               </span>
             )}

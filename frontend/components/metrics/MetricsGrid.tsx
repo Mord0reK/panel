@@ -93,18 +93,18 @@ export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
   return (
     <div className="space-y-4">
       {/* Header — dropdown + stat toggle + status */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:flex-wrap">
         <RangeDropdown value={range} onChange={handleRangeChange} />
 
         {!isLive && (
-          <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900/50 p-0.5">
+          <div className="flex w-full items-center rounded-md border border-zinc-800 bg-zinc-900/50 p-0.5 sm:w-auto">
             {(['min', 'avg', 'max'] as MetricStat[]).map((s) => (
               <button
                 key={s}
                 onClick={() => setStat(s)}
                 data-testid={`metrics-stat-${s}`}
                 className={[
-                  'px-3 py-1 text-xs font-medium rounded transition-colors uppercase tracking-wide',
+                  'flex-1 rounded px-3 py-1 text-xs font-medium transition-colors uppercase tracking-wide sm:flex-none',
                   stat === s
                     ? 'bg-zinc-700 text-zinc-100'
                     : 'text-zinc-500 hover:text-zinc-300',
@@ -117,7 +117,7 @@ export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
         )}
 
         {isLive && (
-          <div className="flex items-center gap-2 text-xs text-zinc-500" data-testid="metrics-live-status">
+          <div className="flex items-center gap-2 self-start text-xs text-zinc-500 sm:self-auto" data-testid="metrics-live-status">
             {connected ? (
               <>
                 <span className="inline-block size-2 rounded-full bg-red-500 animate-pulse" />
@@ -155,7 +155,7 @@ export function MetricsGrid({ uuid, containers = [] }: MetricsGridProps) {
         {CHART_TYPES.map((chartType) => (
           <div
             key={chartType}
-            className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3"
+            className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2.5 sm:p-3"
           >
             {isLive ? (
               <LiveChart points={hostPoints} type={chartType} />

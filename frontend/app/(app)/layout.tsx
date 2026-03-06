@@ -11,11 +11,11 @@ export default function AppLayout({
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:h-12 sm:px-4">
           <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-2 h-4" />
+          <Separator orientation="vertical" className="mr-2 hidden h-4 sm:block" />
         </header>
-        <main className="flex-1 p-4">
+        <main className="flex-1 px-3 py-3 sm:px-4 sm:py-4 lg:px-6">
           {children}
         </main>
       </SidebarInset>
