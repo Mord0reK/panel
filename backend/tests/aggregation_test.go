@@ -22,78 +22,84 @@ func TestAggregation(t *testing.T) {
 	agg := aggregation.NewAggregator(db)
 	defer agg.Stop()
 
-	// Insert 36 points to metrics_5s (3 minutes, one point every 5s)
-	// Data is intentionally older than 5 minutes to pass SourceThreshold for metrics_5s -> metrics_15s
+	// Insert data directly into metrics_15s
+	// Use timestamps that are older than threshold (30s for 15s->30s level)
 	now := time.Now().Unix()
-	startTs := ((now - int64((10 * time.Minute).Seconds())) / 15) * 15
+	tsBase := ((now - 30) / 30) * 30 // align to 30s bucket, 30s old
 
 	tx, _ := db.Begin()
-	for i := 0; i < 36; i++ {
-		ts := startTs + int64(i*5)
-		val := 10.0
-		if i%2 == 1 {
-			val = 20.0
-		}
-		_, err := tx.Exec(`INSERT INTO metrics_5s
-			(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			"agent-agg", "c-agg", ts,
-			val, val, val,
-			100.0, 100.0, 100.0,
-			200.0, 0.0, 0.0, 0.0,
-			1000.0, 1000.0, 1000.0,
-			2000.0, 2000.0, 2000.0)
-		require.NoError(t, err)
-	}
-	for i := 0; i < 36; i++ {
-		ts := startTs + int64(i*5)
-		val := 30.0
-		if i%2 == 1 {
-			val = 50.0
-		}
-		_, err := tx.Exec(`INSERT INTO metrics_5s
-			(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			"agent-agg", models.HostMainContainerID, ts,
-			val, val, val,
-			2048.0, 2048.0, 2048.0,
-			300.0, 150.0, 150.0, 150.0,
-			1200.0, 1200.0, 1200.0,
-			900.0, 900.0, 900.0,
-		)
-		require.NoError(t, err)
-	}
+	// Container metrics - 2 points at timestamps that fall in the SAME 30s bucket
+	_, err = tx.Exec(`INSERT INTO metrics_15s
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"agent-agg", "c-agg", tsBase,
+		10.0, 10.0, 10.0,
+		100.0, 100.0, 100.0,
+		200.0, 0.0, 0.0, 0.0,
+		1000.0, 1000.0, 1000.0,
+		2000.0, 2000.0, 2000.0)
+	require.NoError(t, err)
+
+	_, err = tx.Exec(`INSERT INTO metrics_15s
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"agent-agg", "c-agg", tsBase+10,
+		30.0, 30.0, 30.0,
+		100.0, 100.0, 100.0,
+		200.0, 0.0, 0.0, 0.0,
+		1000.0, 1000.0, 1000.0,
+		2000.0, 2000.0, 2000.0)
+	require.NoError(t, err)
+
+	// Host metrics - same bucket
+	_, err = tx.Exec(`INSERT INTO metrics_15s
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max, disk_used_percent_avg, disk_used_percent_min, disk_used_percent_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"agent-agg", models.HostMainContainerID, tsBase,
+		20.0, 20.0, 20.0,
+		2048.0, 2048.0, 2048.0,
+		300.0, 150.0, 150.0, 150.0,
+		1200.0, 1200.0, 1200.0,
+		900.0, 900.0, 900.0,
+		50.0, 50.0, 50.0)
+	require.NoError(t, err)
+
+	_, err = tx.Exec(`INSERT INTO metrics_15s
+		(agent_uuid, container_id, timestamp, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max, disk_avg, disk_write_avg, disk_write_min, disk_write_max, net_rx_avg, net_rx_min, net_rx_max, net_tx_avg, net_tx_min, net_tx_max, disk_used_percent_avg, disk_used_percent_min, disk_used_percent_max)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"agent-agg", models.HostMainContainerID, tsBase+10,
+		40.0, 40.0, 40.0,
+		2048.0, 2048.0, 2048.0,
+		300.0, 150.0, 150.0, 150.0,
+		1200.0, 1200.0, 1200.0,
+		900.0, 900.0, 900.0,
+		60.0, 60.0, 60.0)
+	require.NoError(t, err)
 	tx.Commit()
 
-	// Verify data exists (36 container + 36 host = 72)
+	// Verify data exists
 	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s").Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 72, count)
-
-	// Run Aggregation manually
-	agg.ProcessAggregation()
-
-	// Check metrics_15s
-	// 36 points (5s) -> aggregated to 15s intervals => 12 points expected.
 	err = db.QueryRow("SELECT COUNT(*) FROM metrics_15s").Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 24, count)
-	err = db.QueryRow("SELECT COUNT(*) FROM metrics_15s WHERE container_id=?", models.HostMainContainerID).Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 12, count)
+	assert.Equal(t, 4, count)
 
-	// Check values
-	var cpuAvg, cpuMin, cpuMax float64
-	err = db.QueryRow("SELECT cpu_avg, cpu_min, cpu_max FROM metrics_15s WHERE timestamp = ?", startTs+15).Scan(&cpuAvg, &cpuMin, &cpuMax)
-	require.NoError(t, err)
-	assert.Greater(t, cpuAvg, 10.0)
-	assert.Less(t, cpuAvg, 20.0)
-	assert.Equal(t, 10.0, cpuMin)
-	assert.Equal(t, 20.0, cpuMax)
+	// Run Aggregation to next level (15s -> 30s)
+	// Threshold for 15s->30s is 30s, our data is older than that (30s old)
+	agg.ProcessAggregation()
 
-	// Check old metrics_5s deleted
-	err = db.QueryRow("SELECT COUNT(*) FROM metrics_5s").Scan(&count)
+	// Check metrics_30s - should have 2 rows (container + host)
+	err = db.QueryRow("SELECT COUNT(*) FROM metrics_30s").Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 0, count)
+	assert.Equal(t, 2, count)
+
+	// Check aggregated values: avg of (10+30)/2 = 20 for container
+	var cpuAvg float64
+	err = db.QueryRow("SELECT cpu_avg FROM metrics_30s WHERE container_id = 'c-agg'").Scan(&cpuAvg)
+	require.NoError(t, err)
+	assert.Equal(t, 20.0, cpuAvg, "container cpu_avg should be 20")
+
+	// avg of (20+40)/2 = 30 for host
+	err = db.QueryRow("SELECT cpu_avg FROM metrics_30s WHERE container_id = ?", models.HostMainContainerID).Scan(&cpuAvg)
+	require.NoError(t, err)
+	assert.Equal(t, 30.0, cpuAvg, "host cpu_avg should be 30")
 }
