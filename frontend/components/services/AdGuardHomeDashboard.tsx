@@ -1,4 +1,7 @@
 import type { ReactNode } from 'react'
+import { useMemo } from 'react'
+import ReactECharts from 'echarts-for-react'
+import type { EChartsOption } from 'echarts'
 import {
   ActivityIcon,
   BanIcon,
@@ -25,6 +28,16 @@ function formatCount(value: number): string {
   return new Intl.NumberFormat('pl-PL').format(value)
 }
 
+function generateHourLabels(count: number): string[] {
+  const now = new Date()
+  const labels: string[] = []
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 60 * 60 * 1000)
+    labels.push(`${d.getHours()}:00`)
+  }
+  return labels
+}
+
 function formatMilliseconds(value: number): string {
   if (!Number.isFinite(value) || value <= 0) {
     return '—'
@@ -45,47 +58,67 @@ function formatRatio(numerator: number, denominator: number): string {
   return `${((numerator / denominator) * 100).toFixed(2)}%`
 }
 
-function SeriesBars({
-  title,
+function Sparkline({
   values,
-  accentClassName,
-  testId,
+  color,
+  labels,
 }: {
-  title: string
   values: number[]
-  accentClassName: string
-  testId: string
+  color: string
+  labels?: string[]
 }) {
-  const maxValue = Math.max(...values, 1)
+  const option = useMemo<EChartsOption>(() => {
+    return {
+      backgroundColor: 'transparent',
+      animation: false,
+      grid: { top: 0, right: 0, bottom: 0, left: 0 },
+      xAxis: {
+        type: 'category',
+        show: false,
+        data: labels ?? values.map((_, i) => String(i)),
+      },
+      yAxis: {
+        type: 'value',
+        show: false,
+        min: 'dataMin',
+      },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#18181b',
+        borderColor: '#27272a',
+        textStyle: { color: '#e4e4e7', fontSize: 12 },
+        formatter: (params: unknown) => {
+          const list = params as {
+            value: number
+            axisValue: string
+          }[]
+          if (!Array.isArray(list) || list.length === 0) return ''
+          const item = list[0]
+          const label = item.axisValue ?? ''
+          const formatted = formatCount(item.value)
+          return `<div style="margin-bottom:2px;color:#a1a1aa">${label}</div><div><b>${formatted}</b> zapytań</div>`
+        },
+      },
+      series: [
+        {
+          type: 'line',
+          data: values,
+          smooth: true,
+          showSymbol: false,
+          lineStyle: { width: 2, color },
+          areaStyle: { opacity: 0.2, color },
+        },
+      ],
+    }
+  }, [values, color, labels])
 
   return (
-    <section className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-zinc-200">{title}</h3>
-        <span className="text-xs text-zinc-500">{values.length} pkt</span>
-      </div>
-      <div
-        data-testid={testId}
-        className="flex h-24 items-end gap-0.5 rounded-lg bg-zinc-950/60 px-2 py-2"
-      >
-        {values.length > 0 ? (
-          values.map((value, index) => {
-            const height = `${Math.max((value / maxValue) * 100, value > 0 ? 12 : 4)}%`
-            return (
-              <div
-                key={`${title}-${index}`}
-                className={cn('flex-1 rounded-sm opacity-80', accentClassName)}
-                style={{ height }}
-              />
-            )
-          })
-        ) : (
-          <div className="flex w-full items-center justify-center text-xs text-zinc-600">
-            Brak danych
-          </div>
-        )}
-      </div>
-    </section>
+    <ReactECharts
+      option={option}
+      style={{ height: '48px' }}
+      notMerge={false}
+      lazyUpdate={false}
+    />
   )
 }
 
@@ -147,10 +180,7 @@ export function AdGuardHomeDashboard({
     dashboard.version.update_available && dashboard.version.latest_version
 
   return (
-    <div
-      data-testid="service-dashboard-adguardhome"
-      className="space-y-4"
-    >
+    <div data-testid="service-dashboard-adguardhome" className="space-y-4">
       {/* Status bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -216,6 +246,15 @@ export function AdGuardHomeDashboard({
           <p className="text-2xl font-semibold tabular-nums text-zinc-100">
             {formatCount(dashboard.stats.num_dns_queries)}
           </p>
+          {dashboard.stats.dns_queries.length > 0 && (
+            <div className="mt-2">
+              <Sparkline
+                values={dashboard.stats.dns_queries}
+                color="#22d3ee"
+                labels={generateHourLabels(dashboard.stats.dns_queries.length)}
+              />
+            </div>
+          )}
         </div>
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
           <div className="mb-2 flex items-center justify-between">
@@ -224,54 +263,56 @@ export function AdGuardHomeDashboard({
           </div>
           <p className="text-2xl font-semibold tabular-nums text-zinc-100">
             {formatCount(dashboard.stats.num_blocked_filtering)}
+            <span className="ml-1 text-zinc-300 text-sm">({blockedRatio})</span>
           </p>
+          {dashboard.stats.blocked_filtering.length > 0 && (
+            <div className="mt-2">
+              <Sparkline
+                values={dashboard.stats.blocked_filtering}
+                color="#34d399"
+                labels={generateHourLabels(
+                  dashboard.stats.blocked_filtering.length
+                )}
+              />
+            </div>
+          )}
         </div>
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs text-zinc-500">Skuteczność</p>
-            <ShieldAlertIcon className="size-3.5 text-emerald-400" />
-          </div>
-          <p className="text-2xl font-semibold tabular-nums text-zinc-100">
-            {blockedRatio}
-          </p>
-        </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs text-zinc-500">Śr. czas odpowiedzi</p>
+            <p className="text-xs text-zinc-500">Zablokowane złośliwe domeny</p>
             <RadarIcon className="size-3.5 text-cyan-400" />
           </div>
           <p className="text-2xl font-semibold tabular-nums text-zinc-100">
-            {formatMilliseconds(dashboard.stats.avg_processing_time)}
+            {formatCount(dashboard.stats.num_replaced_safebrowsing)}
           </p>
+          <div className="mt-2">
+            <Sparkline
+              values={dashboard.stats.replaced_safebrowsing}
+              color="#fbbf24"
+              labels={generateHourLabels(
+                dashboard.stats.replaced_safebrowsing.length
+              )}
+            />
+          </div>
         </div>
-      </section>
-
-      {/* Wykresy */}
-      <section className="grid gap-3 lg:grid-cols-2">
-        <SeriesBars
-          title="Ruch DNS"
-          values={dashboard.stats.dns_queries}
-          accentClassName="bg-cyan-500"
-          testId="adguard-series-dns"
-        />
-        <SeriesBars
-          title="Blokowanie"
-          values={dashboard.stats.blocked_filtering}
-          accentClassName="bg-emerald-500"
-          testId="adguard-series-blocked"
-        />
-        <SeriesBars
-          title="Safe Browsing"
-          values={dashboard.stats.replaced_safebrowsing}
-          accentClassName="bg-amber-500"
-          testId="adguard-series-safe-browsing"
-        />
-        <SeriesBars
-          title="Kontrola rodzicielska"
-          values={dashboard.stats.replaced_parental}
-          accentClassName="bg-fuchsia-500"
-          testId="adguard-series-parental"
-        />
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs text-zinc-500">Kontrola rodzicielska</p>
+            <ShieldAlertIcon className="size-3.5 text-fuchsia-400" />
+          </div>
+          <p className="text-2xl font-semibold tabular-nums text-zinc-100">
+            {formatCount(dashboard.stats.num_replaced_parental)}
+          </p>
+          <div className="mt-2">
+            <Sparkline
+              values={dashboard.stats.replaced_parental}
+              color="#e879f9"
+              labels={generateHourLabels(
+                dashboard.stats.replaced_parental.length
+              )}
+            />
+          </div>
+        </div>
       </section>
 
       {/* Podmiany ochronne */}

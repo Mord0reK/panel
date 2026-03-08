@@ -15,7 +15,7 @@ import type {
   ServiceDefinition,
 } from '@/types'
 
-const FALLBACK_SERVICE_ICON = '/icons/hetzner-h.svg'
+const FALLBACK_SERVICE_ICON = '/icons/info.svg'
 
 function ServicePlaceholder({
   serviceName,
@@ -177,59 +177,6 @@ export default function ServicePage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col gap-4 rounded-[2rem] border border-zinc-800/80 bg-zinc-950/80 p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-4">
-          <div className="flex size-14 items-center justify-center overflow-hidden rounded-[1.25rem] border border-emerald-500/20 bg-zinc-950 shadow-[0_0_40px_-20px_rgba(16,185,129,0.75)]">
-            <Image
-              src={serviceIcon}
-              alt={`${serviceName} icon`}
-              width={40}
-              height={40}
-              className="size-9 object-contain"
-            />
-          </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">
-              Usługi
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-              {serviceName}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-              Read-only dashboard inspirowany oryginalnym AdGuard Home z
-              naciskiem na status ochrony, wersję i topologię ruchu DNS.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => loadPageData({ refresh: true })}
-            disabled={loading || refreshing}
-            data-testid="service-dashboard-refresh"
-          >
-            <RefreshCwIcon
-              className={cn('size-4', refreshing && 'animate-spin')}
-            />
-            {refreshing ? 'Odświeżanie…' : 'Odśwież dane'}
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/settings/services">
-              <Settings2Icon className="size-4" />
-              Ustawienia integracji
-            </Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href="/dashboard">
-              <ArrowLeftIcon className="size-4" />
-              Powrót
-            </Link>
-          </Button>
-        </div>
-      </section>
 
       {loading ? <LoadingState /> : null}
       {!loading && error ? <ErrorState message={error} /> : null}

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { LayoutDashboardIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -22,6 +23,14 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar'
+
+const FALLBACK_SERVICE_ICON = '/icons/info.svg'
+
+function normalizeServiceIcon(icon: string | undefined): string {
+  if (!icon) return FALLBACK_SERVICE_ICON
+  if (icon.startsWith('/icons/')) return icon
+  return icon
+}
 
 export function AppSidebar() {
   const router = useRouter()
@@ -89,6 +98,16 @@ export function AppSidebar() {
                         href={`/services/${service.key}`}
                         onClick={handleLinkClick}
                       >
+                        <div className="flex size-6 shrink-0 items-center justify-center overflow-hidden">
+                          <Image
+                            src={normalizeServiceIcon(service.icon)}
+                            alt={`${service.display_name} icon`}
+                            width={20}
+                            height={20}
+                            className="size-4 object-contain"
+                            unoptimized
+                          />
+                        </div>
                         <span>{service.display_name}</span>
                       </Link>
                     </SidebarMenuButton>

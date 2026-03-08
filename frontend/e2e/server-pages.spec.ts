@@ -234,15 +234,11 @@ test('strona usługi AdGuard Home renderuje dashboard statystyk', async ({
 
   await page.goto('/services/adguardhome')
 
-  await expect(
-    page.getByRole('heading', { name: 'AdGuard Home' }).first()
-  ).toBeVisible()
   await expect(page.getByTestId('service-dashboard-adguardhome')).toBeVisible()
   await expect(page.getByTestId('adguard-version-badge')).toContainText(
     'Dostępna aktualizacja'
   )
   await expect(page.getByText('MacBook-Pro')).toBeVisible()
-  await expect(page.getByTestId('adguard-series-dns')).toBeVisible()
   await expect(page.getByTestId('adguard-top-blocked-domains')).toContainText(
     'ads.example.com'
   )
