@@ -70,7 +70,8 @@ func (a *Aggregator) ProcessAggregation() {
 		}
 
 		// 4. Delete old data
-		if err := a.deleteOldData(level.SourceTable, threshold); err != nil {
+		retentionThreshold := now - int64(level.RetentionThreshold.Seconds())
+		if err := a.deleteOldData(level.SourceTable, retentionThreshold); err != nil {
 			log.Printf("Failed to delete old data from %s: %v", level.SourceTable, err)
 		}
 	}
