@@ -4,6 +4,7 @@ import type {
   CommandRequest,
   ContainerAction,
   ContainerHistoryResponse,
+  ContainerUpdateInfo,
   CustomIcon,
   MetricRange,
   ServiceDefinition,
@@ -216,6 +217,17 @@ export const api = {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+      }
+    )
+  },
+
+  checkAllContainersUpdates(uuid: string, containerIds: string[]) {
+    return apiFetch<ContainerUpdateInfo[]>(
+      `/api/servers/${uuid}/containers/check-updates`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ container_ids: containerIds }),
       }
     )
   },

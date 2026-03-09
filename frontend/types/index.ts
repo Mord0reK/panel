@@ -49,6 +49,15 @@ export interface Container {
   last_seen: string // ISO 8601
 }
 
+export interface ContainerUpdateInfo {
+  container_id: string
+  container_name: string
+  current_version: string
+  latest_version: string
+  update_available: boolean
+  status: 'up_to_date' | 'update_available' | 'local' | 'rate_limited' | 'unknown'
+}
+
 export interface ServerDetailResponse {
   server: Server
   containers: Container[]

@@ -10,6 +10,8 @@ import {
   XIcon,
   Trash2Icon,
   AlertTriangleIcon,
+  ArrowRightIcon,
+  RefreshCwIcon,
 } from 'lucide-react'
 
 import { ContainerActions } from '@/components/containers/ContainerActions'
@@ -29,7 +31,7 @@ import { Label } from '@/components/ui/label'
 import { useServerMetrics } from '@/hooks/useServerMetrics'
 import { api } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatters'
-import type { Container, ContainerAction } from '@/types'
+import type { Container, ContainerAction, ContainerUpdateInfo } from '@/types'
 
 interface ContainersTableProps {
   uuid: string
@@ -37,10 +39,6 @@ interface ContainersTableProps {
   bulkMode: boolean
   onToggleBulk: () => void
 }
-
-// ---------------------------------------------------------------------------
-// Uptime helper
-// ---------------------------------------------------------------------------
 
 function parseUptime(status: string): string {
   if (!status) return ''
@@ -56,10 +54,6 @@ function parseUptime(status: string): string {
   if (unit.startsWith('month')) return `Od ${n}mies`
   return ''
 }
-
-// ---------------------------------------------------------------------------
-// State badge
-// ---------------------------------------------------------------------------
 
 const STATE_LABELS: Record<string, string> = {
   running: 'Uruchomiony',
@@ -78,71 +72,65 @@ function StateBadge({ state }: { state: string }) {
   switch (state) {
     case 'running':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
-          <span className="size-1.5 rounded-full bg-emerald-400" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
+          <span className="size-2 rounded-full bg-emerald-400" />
           {label}
         </span>
       )
     case 'exited':
     case 'stopped':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-400 ring-1 ring-zinc-700">
-          <span className="size-1.5 rounded-full bg-zinc-500" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-400 ring-1 ring-zinc-700">
+          <span className="size-2 rounded-full bg-zinc-500" />
           {label}
         </span>
       )
     case 'paused':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
-          <span className="size-1.5 rounded-full bg-amber-400" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
+          <span className="size-2 rounded-full bg-amber-400" />
           {label}
         </span>
       )
     case 'restarting':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400 ring-1 ring-blue-500/20">
-          <span className="size-1.5 rounded-full bg-blue-400" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-400 ring-1 ring-blue-500/20">
+          <span className="size-2 rounded-full bg-blue-400" />
           {label}
         </span>
       )
     case 'removing':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800/60 px-2 py-0.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-700/50">
-          <span className="size-1.5 rounded-full bg-zinc-600" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800/60 px-2.5 py-1 text-xs font-medium text-zinc-600 ring-1 ring-zinc-700/50">
+          <span className="size-2 rounded-full bg-zinc-600" />
           {label}
         </span>
       )
     case 'created':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-400 ring-1 ring-cyan-500/20">
-          <span className="size-1.5 rounded-full bg-cyan-400" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2.5 py-1 text-xs font-medium text-cyan-400 ring-1 ring-cyan-500/20">
+          <span className="size-2 rounded-full bg-cyan-400" />
           {label}
         </span>
       )
     case 'dead':
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400 ring-1 ring-red-500/20">
-          <span className="size-1.5 rounded-full bg-red-500" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-400 ring-1 ring-red-500/20">
+          <span className="size-2 rounded-full bg-red-500" />
           {label}
         </span>
       )
     default:
       return state ? (
-        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700">
+        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700">
           {label}
         </span>
       ) : null
   }
 }
 
-// ---------------------------------------------------------------------------
-// Health badge (with optional uptime)
-// ---------------------------------------------------------------------------
-
 function HealthBadge({ health, uptime }: { health: string; uptime?: string }) {
-  const uptimePart = uptime ? (
-    <span className="text-xs text-zinc-500 ml-1">{uptime}</span>
-  ) : null
+  const uptimePart = uptime ? <span className="text-xs text-zinc-500 ml-1">{uptime}</span> : null
 
   switch (health) {
     case 'healthy':
@@ -176,7 +164,6 @@ function HealthBadge({ health, uptime }: { health: string; uptime?: string }) {
         </div>
       )
     default:
-      // Empty health — show just uptime if available, else dash
       return (
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-zinc-600">Nieznany</span>
@@ -186,28 +173,55 @@ function HealthBadge({ health, uptime }: { health: string; uptime?: string }) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// BulkCheckbox cell — always rendered, animates in/out
-// ---------------------------------------------------------------------------
+function UpdateBadge({ updateInfo }: { updateInfo?: ContainerUpdateInfo }) {
+  if (!updateInfo) return null
+
+  switch (updateInfo.status) {
+    case 'up_to_date':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
+          Aktualny
+        </span>
+      )
+    case 'update_available':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
+          <RefreshCwIcon className="size-3" />
+          Aktualizacja
+        </span>
+      )
+    case 'local':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-700/50 px-2 py-0.5 text-xs font-medium text-zinc-400">
+          Lokalny
+        </span>
+      )
+    case 'rate_limited':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-400">
+          Rate limit
+        </span>
+      )
+    default:
+      return null
+  }
+}
 
 function BulkCheckboxCell({
   bulkMode,
   checked,
   onCheckedChange,
   ariaLabel,
-  isHeader,
 }: {
   bulkMode: boolean
   checked: boolean | 'indeterminate'
   onCheckedChange: (val: boolean) => void
   ariaLabel: string
-  isHeader?: boolean
 }) {
   return (
     <td
       className={[
         'transition-all duration-200 overflow-hidden',
-        isHeader ? 'py-3' : 'py-3',
         bulkMode ? 'w-10 px-4 opacity-100' : 'w-0 px-0 opacity-0 pointer-events-none',
       ].join(' ')}
     >
@@ -248,10 +262,6 @@ function BulkCheckboxTh({
     </th>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Project group header row
-// ---------------------------------------------------------------------------
 
 type ComposeAction = 'compose-stop' | 'compose-start' | 'compose-restart'
 
@@ -297,7 +307,7 @@ function ProjectGroupHeader({
         onCheckedChange={onSelectAll}
         ariaLabel="Zaznacz wszystkie w grupie"
       />
-      <td colSpan={6} className="px-3 py-2 sm:px-4">
+      <td colSpan={5} className="px-3 py-2 sm:px-4">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
             {isStandalone ? 'Standalone' : projectName}
@@ -347,27 +357,90 @@ function ProjectGroupHeader({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Container row
-// ---------------------------------------------------------------------------
-
-function ContainerRow({
-  uuid,
-  c,
-  onDeleted,
-  onAction,
-  bulkMode,
-  selected,
-  onSelect,
-}: {
+interface ContainerCardProps {
   uuid: string
   c: Container
+  updateInfo?: ContainerUpdateInfo
+  onDeleted: (id: string) => void
+  onAction: () => void
+}
+
+function ContainerCard({ uuid, c, updateInfo, onDeleted, onAction }: ContainerCardProps) {
+  const uptime = c.status ? parseUptime(c.status) : ''
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-medium text-zinc-200 truncate">{c.name}</h3>
+          {c.project && (
+            <p className="text-xs text-zinc-500 mt-0.5">
+              {c.project}/{c.service}
+            </p>
+          )}
+        </div>
+        <ContainerActions
+          uuid={uuid}
+          containerId={c.container_id}
+          containerName={c.name}
+          onDeleted={() => onDeleted(c.container_id)}
+          onAction={onAction}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <StateBadge state={c.state} />
+        <HealthBadge health={c.health ?? ''} uptime={uptime} />
+      </div>
+
+      {uptime && (
+        <p className="text-xs text-zinc-500">{c.status}</p>
+      )}
+
+      <div className="space-y-1.5 pt-1">
+        <Badge variant="secondary" className="font-mono text-xs block w-full text-left truncate">
+          {c.image}
+        </Badge>
+        {updateInfo && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {updateInfo.current_version && (
+              <span className="text-xs text-zinc-400">{updateInfo.current_version}</span>
+            )}
+            {updateInfo.update_available && updateInfo.latest_version && (
+              <>
+                <ArrowRightIcon className="size-3 text-amber-400" />
+                <span className="text-xs text-amber-400 font-medium">{updateInfo.latest_version}</span>
+              </>
+            )}
+            <UpdateBadge updateInfo={updateInfo} />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface ContainerRowProps {
+  uuid: string
+  c: Container
+  updateInfo?: ContainerUpdateInfo
   onDeleted: (id: string) => void
   onAction: () => void
   bulkMode: boolean
   selected: boolean
   onSelect: (id: string, checked: boolean) => void
-}) {
+}
+
+function ContainerRow({
+  uuid,
+  c,
+  updateInfo,
+  onDeleted,
+  onAction,
+  bulkMode,
+  selected,
+  onSelect,
+}: ContainerRowProps) {
   const uptime = c.status ? parseUptime(c.status) : ''
 
   return (
@@ -386,39 +459,39 @@ function ContainerRow({
         ariaLabel={`Zaznacz ${c.name}`}
       />
       <td className="px-3 py-3 sm:px-4">
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           <div className="font-medium text-zinc-200">{c.name}</div>
-          <div className="space-y-1 text-xs text-zinc-500 lg:hidden">
-            <div className="truncate">{c.service || '—'}</div>
-            <div suppressHydrationWarning>{formatRelativeTime(c.last_seen)}</div>
-            <div className="xl:hidden">
-              <Badge variant="secondary" className="max-w-full font-mono text-[11px]">
-                <span className="truncate">{c.image}</span>
-              </Badge>
-            </div>
-          </div>
+          <div className="text-xs text-zinc-500 lg:hidden">{c.service || '—'}</div>
         </div>
       </td>
       <td className="px-3 py-3 sm:px-4">
-        <div className="space-y-1.5">
-          <StateBadge state={c.state} />
-          <div className="lg:hidden">
-            <HealthBadge health={c.health ?? ''} uptime={uptime} />
-          </div>
-        </div>
+        <StateBadge state={c.state} />
       </td>
       <td className="hidden px-4 py-3 lg:table-cell">
         <HealthBadge health={c.health ?? ''} uptime={uptime} />
       </td>
       <td className="hidden px-4 py-3 xl:table-cell">
-        <Badge variant="secondary" className="font-mono text-xs">
-          {c.image}
-        </Badge>
+        <div className="space-y-1">
+          <Badge variant="secondary" className="font-mono text-xs block max-w-[200px] truncate">
+            {c.image}
+          </Badge>
+          {updateInfo && (
+            <div className="flex items-center gap-1">
+              {updateInfo.current_version && (
+                <span className="text-xs text-zinc-500">{updateInfo.current_version}</span>
+              )}
+              {updateInfo.update_available && updateInfo.latest_version && (
+                <>
+                  <ArrowRightIcon className="size-3 text-amber-400" />
+                  <span className="text-xs text-amber-400">{updateInfo.latest_version}</span>
+                </>
+              )}
+              <UpdateBadge updateInfo={updateInfo} />
+            </div>
+          )}
+        </div>
       </td>
       <td className="hidden px-4 py-3 text-zinc-400 lg:table-cell">{c.service || '—'}</td>
-      <td className="hidden px-4 py-3 text-zinc-400 xl:table-cell" suppressHydrationWarning>
-        {formatRelativeTime(c.last_seen)}
-      </td>
       <td className="px-3 py-3 text-right sm:px-4">
         {!bulkMode && (
           <ContainerActions
@@ -434,25 +507,11 @@ function ContainerRow({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Project group
-// ---------------------------------------------------------------------------
-
-function ProjectGroup({
-  uuid,
-  projectKey,
-  group,
-  isStandalone,
-  onDeleted,
-  onAction,
-  bulkMode,
-  selectedIds,
-  onSelect,
-  onSelectGroup,
-}: {
+interface ProjectGroupProps {
   uuid: string
   projectKey: string
   group: Container[]
+  updateInfos: Map<string, ContainerUpdateInfo>
   isStandalone: boolean
   onDeleted: (id: string) => void
   onAction: () => void
@@ -460,7 +519,21 @@ function ProjectGroup({
   selectedIds: Set<string>
   onSelect: (id: string, checked: boolean) => void
   onSelectGroup: (ids: string[], checked: boolean) => void
-}) {
+}
+
+function ProjectGroup({
+  uuid,
+  projectKey,
+  group,
+  updateInfos,
+  isStandalone,
+  onDeleted,
+  onAction,
+  bulkMode,
+  selectedIds,
+  onSelect,
+  onSelectGroup,
+}: ProjectGroupProps) {
   const showActions = !isStandalone && group.length > 1
   const groupIds = group.map((c) => c.container_id)
   const allSelected = groupIds.every((id) => selectedIds.has(id))
@@ -484,6 +557,7 @@ function ProjectGroup({
           key={c.container_id}
           uuid={uuid}
           c={c}
+          updateInfo={updateInfos.get(c.container_id)}
           onDeleted={onDeleted}
           onAction={onAction}
           bulkMode={bulkMode}
@@ -495,21 +569,14 @@ function ProjectGroup({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Bulk action bar
-// ---------------------------------------------------------------------------
-
-function BulkActionBar({
-  uuid,
-  selectedIds,
-  onDone,
-  onBulkDeleted,
-}: {
+interface BulkActionBarProps {
   uuid: string
   selectedIds: Set<string>
   onDone: () => void
   onBulkDeleted: (deletedIds: string[]) => void
-}) {
+}
+
+function BulkActionBar({ uuid, selectedIds, onDone, onBulkDeleted }: BulkActionBarProps) {
   const [pending, setPending] = useState<ContainerAction | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
@@ -646,9 +713,7 @@ function BulkActionBar({
                 disabled={deleting}
               />
             </div>
-            {deleteError && (
-              <p className="text-sm text-red-400">{deleteError}</p>
-            )}
+            {deleteError && <p className="text-sm text-red-400">{deleteError}</p>}
           </div>
 
           <DialogFooter>
@@ -678,14 +743,12 @@ function BulkActionBar({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Exported component
-// ---------------------------------------------------------------------------
-
 export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: ContainersTableProps) {
   const router = useRouter()
   const [localContainers, setLocalContainers] = useState<Container[]>(containers)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [updateInfos, setUpdateInfos] = useState<Map<string, ContainerUpdateInfo>>(new Map())
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
 
   const { containerPoints } = useServerMetrics(uuid)
 
@@ -702,6 +765,27 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
       }
     })
   }, [localContainers, containerPoints])
+
+  useEffect(() => {
+    async function checkUpdates() {
+      if (mergedContainers.length === 0) return
+      setCheckingUpdates(true)
+      try {
+        const containerIds = mergedContainers.map((c) => c.container_id)
+        const updates = await api.checkAllContainersUpdates(uuid, containerIds)
+        const infoMap = new Map<string, ContainerUpdateInfo>()
+        for (const u of updates) {
+          infoMap.set(u.container_id, u)
+        }
+        setUpdateInfos(infoMap)
+      } catch {
+        // ignore errors
+      } finally {
+        setCheckingUpdates(false)
+      }
+    }
+    checkUpdates()
+  }, [uuid, mergedContainers.length])
 
   function handleDeleted(containerId: string) {
     setLocalContainers((prev) => prev.filter((c) => c.container_id !== containerId))
@@ -721,7 +805,6 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
     ids.forEach((id) => handleDeleted(id))
   }
 
-  // Reset selection when leaving bulk mode
   useEffect(() => {
     if (!bulkMode) setSelectedIds(new Set())
   }, [bulkMode])
@@ -766,9 +849,7 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
     return a.localeCompare(b)
   })
 
-  const allSelected =
-    mergedContainers.length > 0 &&
-    mergedContainers.every((c) => selectedIds.has(c.container_id))
+  const allSelected = mergedContainers.length > 0 && mergedContainers.every((c) => selectedIds.has(c.container_id))
   const someSelected = mergedContainers.some((c) => selectedIds.has(c.container_id))
 
   return (
@@ -782,7 +863,27 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
         />
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-zinc-800">
+      {checkingUpdates && (
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <RefreshCwIcon className="size-3 animate-spin" />
+          Sprawdzam aktualizacje...
+        </div>
+      )}
+
+      <div className="md:hidden space-y-3">
+        {mergedContainers.map((c) => (
+          <ContainerCard
+            key={c.container_id}
+            uuid={uuid}
+            c={c}
+            updateInfo={updateInfos.get(c.container_id)}
+            onDeleted={handleDeleted}
+            onAction={handleAction}
+          />
+        ))}
+      </div>
+
+      <div className="hidden md:block overflow-x-auto rounded-lg border border-zinc-800">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-800 bg-zinc-900/50 text-left text-xs text-zinc-500">
@@ -800,7 +901,6 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
               <th className="hidden px-4 py-3 font-medium lg:table-cell">Health</th>
               <th className="hidden px-4 py-3 font-medium xl:table-cell">Obraz</th>
               <th className="hidden px-4 py-3 font-medium lg:table-cell">Serwis</th>
-              <th className="hidden px-4 py-3 font-medium xl:table-cell">Ostatnio widziany</th>
               <th className="px-3 py-3 text-right font-medium sm:px-4">Akcje</th>
             </tr>
           </thead>
@@ -814,6 +914,7 @@ export function ContainersTable({ uuid, containers, bulkMode, onToggleBulk }: Co
                   uuid={uuid}
                   projectKey={key}
                   group={group}
+                  updateInfos={updateInfos}
                   isStandalone={isStandalone}
                   onDeleted={handleDeleted}
                   onAction={handleAction}

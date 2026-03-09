@@ -105,6 +105,7 @@ func main() {
 	apiRouter.HandleFunc("/servers/{uuid}/command", commandsHandler.HandleCommand).Methods("POST")
 	apiRouter.HandleFunc("/servers/{uuid}/containers/{id}/command", commandsHandler.HandleContainerCommand).Methods("POST")
 	apiRouter.HandleFunc("/servers/{uuid}/containers/{id}/check-update", commandsHandler.HandleCheckUpdate).Methods("POST")
+	apiRouter.HandleFunc("/servers/{uuid}/containers/check-updates", commandsHandler.HandleCheckAllUpdates).Methods("POST")
 	apiRouter.HandleFunc("/servers/{uuid}/containers/{id}/update", commandsHandler.HandleUpdate).Methods("POST")
 	apiRouter.HandleFunc("/servers/{uuid}/containers/{id}", serversHandler.HandleDeleteContainer).Methods("DELETE")
 	apiRouter.HandleFunc("/servers/{uuid}/containers", serversHandler.HandleDeleteContainers).Methods("DELETE")

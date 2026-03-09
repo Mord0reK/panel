@@ -109,3 +109,45 @@ func (h *CommandsHandler) HandleUpdate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(resp)
 }
+
+type checkAllUpdatesRequest struct {
+	ContainerIDs []string `json:"container_ids"`
+}
+
+func (h *CommandsHandler) HandleCheckAllUpdates(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	uuid := vars["uuid"]
+
+	var req checkAllUpdatesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(req.ContainerIDs) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+		return
+	}
+
+	var results []json.RawMessage
+	for _, containerID := range req.ContainerIDs {
+		resp, err := h.hub.RequestAgent(uuid, "check-updates", containerID)
+		if err != nil {
+			continue
+		}
+		if len(resp) > 0 && resp[0] == '[' {
+			var updates []json.RawMessage
+			if json.Unmarshal(resp, &updates) == nil {
+				results = append(results, updates...)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte("[]"))
+	if len(results) > 0 {
+		out, _ := json.Marshal(results)
+		w.Write(out)
+	}
+}
