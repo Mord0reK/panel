@@ -10,14 +10,16 @@ import (
 )
 
 type Aggregator struct {
-	db     *sql.DB
-	stopCh chan struct{}
+	db      *sql.DB
+	stopCh  chan struct{}
+	lastRun map[string]time.Time // key: target table name
 }
 
 func NewAggregator(db *sql.DB) *Aggregator {
 	a := &Aggregator{
-		db:     db,
-		stopCh: make(chan struct{}),
+		db:      db,
+		stopCh:  make(chan struct{}),
+		lastRun: make(map[string]time.Time),
 	}
 	go a.RunAggregation()
 	go a.RunCleanup()
@@ -30,7 +32,7 @@ func (a *Aggregator) Stop() {
 
 func (a *Aggregator) RunAggregation() {
 	time.Sleep(5 * time.Second)
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(10 * time.Second) // Check every 10s if any level needs aggregation
 	defer ticker.Stop()
 
 	for {
@@ -58,10 +60,17 @@ func (a *Aggregator) RunCleanup() {
 }
 
 func (a *Aggregator) ProcessAggregation() {
-	now := time.Now().Unix()
+	now := time.Now()
+	currentTime := now.Unix()
 
 	for _, level := range ContainerAggregationLevels {
-		threshold := now - int64(level.SourceThreshold.Seconds())
+		// Check if enough time has passed since last run for this level
+		lastRun, ok := a.lastRun[level.TargetTable]
+		if ok && now.Sub(lastRun) < level.AggregationInterval {
+			continue // Skip this level if not enough time has passed
+		}
+
+		threshold := currentTime - int64(level.SourceThreshold.Seconds())
 
 		// 1. Fetch data to aggregate
 		rows, err := a.fetchData(level.SourceTable, threshold)
@@ -84,6 +93,9 @@ func (a *Aggregator) ProcessAggregation() {
 				continue
 			}
 		}
+
+		// Update last run time
+		a.lastRun[level.TargetTable] = now
 	}
 }
 
