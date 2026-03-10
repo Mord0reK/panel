@@ -53,7 +53,7 @@ var ContainerAggregationLevels = []AggregationLevel{
 		TargetTable:         "metrics_30m",
 		SourceThreshold:     1800 * time.Second,
 		AggregationInterval: 30 * time.Minute,
-		RetentionThreshold:  12 * time.Hour,
+		RetentionThreshold:  48 * time.Hour,
 	},
 	{
 		SourceTable:         "metrics_30m",

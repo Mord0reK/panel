@@ -85,7 +85,8 @@ func StartBulkInserter(db *sql.DB, manager *BufferManager) *BulkInserter {
 }
 
 func (bi *BulkInserter) Run() {
-	ticker := time.NewTicker(10 * time.Second)
+	time.Sleep(250 * time.Millisecond)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {

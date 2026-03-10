@@ -19,7 +19,8 @@ func NewAggregator(db *sql.DB) *Aggregator {
 		db:     db,
 		stopCh: make(chan struct{}),
 	}
-	go a.Run()
+	go a.RunAggregation()
+	go a.RunCleanup()
 	return a
 }
 
@@ -27,8 +28,9 @@ func (a *Aggregator) Stop() {
 	close(a.stopCh)
 }
 
-func (a *Aggregator) Run() {
-	ticker := time.NewTicker(10 * time.Second)
+func (a *Aggregator) RunAggregation() {
+	time.Sleep(5 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -37,6 +39,20 @@ func (a *Aggregator) Run() {
 			return
 		case <-ticker.C:
 			a.ProcessAggregation()
+		}
+	}
+}
+
+func (a *Aggregator) RunCleanup() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.stopCh:
+			return
+		case <-ticker.C:
+			a.ProcessCleanup()
 		}
 	}
 }
@@ -68,8 +84,13 @@ func (a *Aggregator) ProcessAggregation() {
 				continue
 			}
 		}
+	}
+}
 
-		// 4. Delete old data
+func (a *Aggregator) ProcessCleanup() {
+	now := time.Now().Unix()
+
+	for _, level := range ContainerAggregationLevels {
 		retentionThreshold := now - int64(level.RetentionThreshold.Seconds())
 		if err := a.deleteOldData(level.SourceTable, retentionThreshold); err != nil {
 			log.Printf("Failed to delete old data from %s: %v", level.SourceTable, err)

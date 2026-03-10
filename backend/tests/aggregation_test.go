@@ -23,9 +23,11 @@ func TestAggregation(t *testing.T) {
 	defer agg.Stop()
 
 	// Insert data directly into metrics_15s
-	// Use timestamps that are older than threshold (30s for 15s->30s level)
+	// Use timestamps that are older than threshold (30s for 15s->30s level).
+	// We use now-60 as base to guarantee both tsBase and tsBase+10 are always
+	// older than the 30s source threshold, regardless of the current second.
 	now := time.Now().Unix()
-	tsBase := ((now - 30) / 30) * 30 // align to 30s bucket, 30s old
+	tsBase := ((now - 60) / 30) * 30 // align to 30s bucket, at least 60s old
 
 	tx, _ := db.Begin()
 	// Container metrics - 2 points at timestamps that fall in the SAME 30s bucket
