@@ -7,9 +7,16 @@ import { SettingsNav } from '@/components/settings/SettingsNav'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import type { ServiceDefinition } from '@/types'
+import type { CloudflareZone, ServiceDefinition } from '@/types'
 
 interface ServiceDraft {
   enabled: boolean
@@ -45,6 +52,7 @@ export default function SettingsServicesPage() {
     Record<string, ServiceDraft>
   >({})
   const [testingServices, setTestingServices] = useState<Set<string>>(new Set())
+  const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set())
   const [globalSaving, setGlobalSaving] = useState(false)
   const [globalMessage, setGlobalMessage] = useState<{
     text: string
@@ -52,6 +60,8 @@ export default function SettingsServicesPage() {
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [cloudflareZones, setCloudflareZones] = useState<CloudflareZone[]>([])
+  const [cloudflareZonesLoading, setCloudflareZonesLoading] = useState(false)
 
   const hasChanges = useMemo(() => {
     for (const key of Object.keys(drafts)) {
@@ -100,6 +110,12 @@ export default function SettingsServicesPage() {
       )
       setDrafts(nextDrafts)
       setOriginalDrafts(nextDrafts)
+
+      // For Cloudflare: pre-load zones if the integration is already configured
+      const cf = payload.find((s) => s.key === 'cloudflare')
+      if (cf?.enabled) {
+        api.getCloudflareZones().then(setCloudflareZones).catch(() => {})
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Nie udało się pobrać usług'
@@ -135,6 +151,27 @@ export default function SettingsServicesPage() {
         ...patch,
       },
     }))
+
+    // Reset expanded state when disabling the service
+    if (patch.enabled === false) {
+      setExpandedServices((prev) => {
+        const next = new Set(prev)
+        next.delete(serviceKey)
+        return next
+      })
+    }
+  }
+
+  function toggleServiceExpanded(serviceKey: string) {
+    setExpandedServices((prev) => {
+      const next = new Set(prev)
+      if (next.has(serviceKey)) {
+        next.delete(serviceKey)
+      } else {
+        next.add(serviceKey)
+      }
+      return next
+    })
   }
 
   function buildConfigPayload(service: ServiceDefinition, draft: ServiceDraft) {
@@ -152,15 +189,15 @@ export default function SettingsServicesPage() {
       payload.base_url = draft.baseUrl.trim()
     }
 
-    if (service.auth_type === 'token' && draft.token.trim() !== '') {
+    if (service.auth_type === 'token' && draft.token.trim() !== '' && !draft.token.startsWith('••')) {
       payload.token = draft.token.trim()
     }
 
     if (service.auth_type === 'basic_auth') {
-      if (draft.username.trim() !== '') {
+      if (draft.username.trim() !== '' && !draft.username.startsWith('••')) {
         payload.username = draft.username.trim()
       }
-      if (draft.password.trim() !== '') {
+      if (draft.password.trim() !== '' && !draft.password.startsWith('••')) {
         payload.password = draft.password
       }
     }
@@ -218,6 +255,16 @@ export default function SettingsServicesPage() {
         text: `${service.display_name}: Test połączenia zakończony powodzeniem.`,
         type: 'success',
       })
+
+      // For Cloudflare: fetch zones after successful test to populate dropdown
+      if (service.key === 'cloudflare') {
+        setCloudflareZonesLoading(true)
+        const newToken = draft.password.startsWith('••') ? undefined : draft.password.trim() || undefined
+        api.getCloudflareZones(newToken)
+          .then(setCloudflareZones)
+          .catch(() => {})
+          .finally(() => setCloudflareZonesLoading(false))
+      }
     } catch (err) {
       setGlobalMessage({
         text: `${service.display_name}: ${err instanceof Error ? err.message : 'Nie udało się przetestować połączenia.'}`,
@@ -283,13 +330,15 @@ export default function SettingsServicesPage() {
         {sortedServices.map((service) => {
           const draft = drafts[service.key] ?? buildDraft(service)
           const isTesting = testingServices.has(service.key)
-          const isExpanded = draft.enabled
+          const isExpanded = draft.enabled && expandedServices.has(service.key)
           return (
             <section
               key={service.key}
               data-testid={`service-card-${service.key}`}
+              onClick={() => draft.enabled && toggleServiceExpanded(service.key)}
               className={cn(
                 'space-y-4 rounded-lg border p-3 transition-colors sm:p-4',
+                draft.enabled && 'cursor-pointer hover:border-emerald-600/40',
                 isExpanded
                   ? 'border-emerald-700/60 bg-zinc-900/80'
                   : 'border-zinc-800 bg-zinc-900/55'
@@ -318,7 +367,8 @@ export default function SettingsServicesPage() {
                     type="button"
                     role="switch"
                     aria-checked={draft.enabled}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation()
                       updateDraft(service.key, { enabled: !draft.enabled })
                     }}
                     className={cn(
@@ -402,7 +452,7 @@ export default function SettingsServicesPage() {
                       <>
                         <div className="space-y-2">
                           <Label htmlFor={`username-${service.key}`}>
-                            Nazwa użytkownika
+                            {service.key === 'cloudflare' ? 'Zone ID' : 'Nazwa użytkownika'}
                           </Label>
                           <Input
                             id={`username-${service.key}`}
@@ -412,13 +462,13 @@ export default function SettingsServicesPage() {
                                 username: event.target.value,
                               })
                             }}
-                            placeholder="admin"
+                            placeholder={service.key === 'cloudflare' ? '023e105f4ecef8ad9ca31a8372d0c353' : 'admin'}
                             data-testid={`service-username-${service.key}`}
                           />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor={`password-${service.key}`}>
-                            Hasło
+                            {service.key === 'cloudflare' ? 'Token API' : 'Hasło'}
                           </Label>
                           <Input
                             id={`password-${service.key}`}
@@ -436,6 +486,37 @@ export default function SettingsServicesPage() {
                             data-testid={`service-password-${service.key}`}
                           />
                         </div>
+                        {service.key === 'cloudflare' && (
+                          <div className="space-y-2 md:col-span-2">
+                            <Label>Domena do zarządzania</Label>
+                            {cloudflareZones.length > 0 ? (
+                              <Select
+                                value={draft.username}
+                                onValueChange={(value) =>
+                                  updateDraft(service.key, { username: value })
+                                }
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Wybierz domenę…" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {cloudflareZones.map((zone) => (
+                                    <SelectItem key={zone.id} value={zone.id}>
+                                      {zone.name}
+                                      <span className="ml-2 text-xs text-zinc-500">{zone.id}</span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <p className="text-xs text-zinc-500">
+                                {cloudflareZonesLoading
+                                  ? 'Ładowanie domen…'
+                                  : 'Przetestuj połączenie, aby załadować listę domen.'}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -446,7 +527,7 @@ export default function SettingsServicesPage() {
                       variant="outline"
                       size="sm"
                       disabled={isTesting || globalSaving}
-                      onClick={() => handleTest(service, draft)}
+                      onClick={(e) => { e.stopPropagation(); handleTest(service, draft) }}
                       data-testid={`service-test-${service.key}`}
                       className="w-full sm:w-auto"
                     >
@@ -457,7 +538,9 @@ export default function SettingsServicesPage() {
               ) : (
                 <div className="space-y-2">
                   <p className="text-xs text-zinc-500">
-                    Usługa jest wyłączona. Włącz ją, aby rozwinąć konfigurację.
+                    {draft.enabled
+                      ? 'Kliknij na sekcję, aby rozwinąć konfigurację.'
+                      : 'Usługa jest wyłączona. Włącz ją, aby rozwinąć konfigurację.'}
                   </p>
                 </div>
               )}

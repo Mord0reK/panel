@@ -7,6 +7,7 @@ import { LayoutDashboardIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { ServerNavList } from '@/components/sidebar/ServerNavList'
+import { ServiceNavItem } from '@/components/sidebar/ServiceNavItem'
 import type { ServiceDefinition } from '@/types'
 import { api } from '@/lib/api'
 import {
@@ -92,26 +93,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {enabledServices.length > 0 ? (
                 enabledServices.map((service) => (
-                  <SidebarMenuItem key={service.key}>
-                    <SidebarMenuButton asChild tooltip={service.display_name}>
-                      <Link
-                        href={`/services/${service.key}`}
-                        onClick={handleLinkClick}
-                      >
-                        <div className="flex size-6 shrink-0 items-center justify-center overflow-hidden">
-                          <Image
-                            src={normalizeServiceIcon(service.icon)}
-                            alt={`${service.display_name} icon`}
-                            width={20}
-                            height={20}
-                            className="size-4 object-contain"
-                            unoptimized
-                          />
-                        </div>
-                        <span>{service.display_name}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  <ServiceNavItem key={service.key} service={service} />
                 ))
               ) : (
                 <SidebarMenuItem>

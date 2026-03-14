@@ -129,6 +129,25 @@ export interface AdGuardHomeDashboardResponse {
 }
 
 // =============================================================================
+// CLOUDFLARE
+// =============================================================================
+
+export interface CloudflareZone {
+  id: string
+  name: string
+}
+
+export interface CloudflareDNSRecord {
+  id: string
+  type: string
+  name: string
+  content: string
+  ttl: number
+  proxied: boolean
+  modified_on: string
+}
+
+// =============================================================================
 // COMMANDS
 // =============================================================================
 

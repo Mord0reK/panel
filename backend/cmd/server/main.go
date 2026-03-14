@@ -57,6 +57,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize services handler: %v", err)
 	}
+	cloudflareHandler, err := api.NewCloudflareHandler(db, cfg.JWTSecret)
+	if err != nil {
+		log.Fatalf("Failed to initialize cloudflare handler: %v", err)
+	}
 
 	// 6. Router
 	r := mux.NewRouter()
@@ -115,6 +119,8 @@ func main() {
 
 	apiRouter.HandleFunc("/metrics/live/all", sseHandler.HandleLiveAll).Methods("GET")
 	apiRouter.HandleFunc("/metrics/live/servers/{uuid}", sseHandler.HandleLiveServer).Methods("GET")
+	apiRouter.HandleFunc("/services/cloudflare/zones", cloudflareHandler.HandleZones).Methods("POST")
+	apiRouter.HandleFunc("/services/cloudflare/dns", cloudflareHandler.HandleDNSRecords).Methods("GET")
 	apiRouter.HandleFunc("/services", servicesHandler.HandleList).Methods("GET")
 	apiRouter.HandleFunc("/services/{service}/config", servicesHandler.HandleGetConfig).Methods("GET")
 	apiRouter.HandleFunc("/services/{service}/config", servicesHandler.HandleConfigUpsert).Methods("PUT")

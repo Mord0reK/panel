@@ -1,6 +1,8 @@
 import type {
   AdGuardHomeDashboardResponse,
   AuthStatusResponse,
+  CloudflareDNSRecord,
+  CloudflareZone,
   CommandRequest,
   ContainerAction,
   ContainerHistoryResponse,
@@ -125,6 +127,22 @@ export const api = {
     return apiFetch<AdGuardHomeDashboardResponse>(
       `/api/services/${serviceKey}/stats`
     )
+  },
+
+  // -------------------------------------------------------------------------
+  // Cloudflare
+  // -------------------------------------------------------------------------
+
+  getCloudflareZones(apiToken?: string) {
+    return apiFetch<CloudflareZone[]>('/api/services/cloudflare/zones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(apiToken ? { api_token: apiToken } : {}),
+    })
+  },
+
+  getCloudflareDNSRecords() {
+    return apiFetch<CloudflareDNSRecord[]>('/api/services/cloudflare/dns')
   },
 
   // -------------------------------------------------------------------------
